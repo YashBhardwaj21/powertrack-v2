@@ -1,0 +1,5 @@
+{
+  "name": "PowerTrack Solar Dashboard",
+  "description": "A real-time community solar monitoring dashboard for West Java schools tracking energy generation, savings, and environmental impact.",
+  "requestFramePermissions": []
+}

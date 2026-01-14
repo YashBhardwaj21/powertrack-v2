@@ -1,0 +1,105 @@
+
+import React, { useEffect, useRef } from 'react';
+import { School, Telemetry } from '../types';
+import L from 'leaflet';
+import { WEATHER_ICONS } from '../constants';
+
+// We need to fix the default icon issue in Leaflet with Webpack/React
+const DefaultIcon = L.icon({
+    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41]
+});
+
+L.Marker.prototype.options.icon = DefaultIcon;
+
+interface SolarMapProps {
+    schools: School[];
+    currentData: Telemetry[];
+}
+
+export const SolarMap: React.FC<SolarMapProps> = ({ schools, currentData }) => {
+    const mapRef = useRef<L.Map | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const markersRef = useRef<L.Marker[]>([]);
+
+    useEffect(() => {
+        if (!containerRef.current || mapRef.current) return;
+
+        // Initialize map
+        mapRef.current = L.map(containerRef.current).setView([-6.92, 107.62], 13);
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(mapRef.current);
+
+        return () => {
+            if (mapRef.current) {
+                mapRef.current.remove();
+                mapRef.current = null;
+            }
+        };
+    }, []);
+
+    // Update markers when data changes
+    useEffect(() => {
+        if (!mapRef.current) return;
+
+        // Clear existing markers
+        markersRef.current.forEach(marker => marker.remove());
+        markersRef.current = [];
+
+        schools.forEach(school => {
+            // Fix: Use school.id instead of school.school_id
+            const data = currentData.find(d => d.school_id === school.id);
+            if (!data) return;
+
+            const iconHtml = `
+                <div class="relative flex items-center justify-center w-10 h-10 bg-white rounded-full border-2 border-blue-600 shadow-lg text-lg">
+                   ${WEATHER_ICONS[data.weather_condition] || '☀️'}
+                </div>
+            `;
+
+            const customIcon = L.divIcon({
+                html: iconHtml,
+                className: 'bg-transparent border-none',
+                iconSize: [40, 40],
+                iconAnchor: [20, 20]
+            });
+
+            const popupContent = `
+                <div class="p-2 font-sans min-w-[200px]">
+                    <h3 class="font-bold text-blue-900 mb-2 border-b pb-1">${school.name}</h3>
+                    <div class="space-y-1 text-sm text-gray-700">
+                        <div class="flex justify-between"><span>Power:</span> <span class="font-semibold">${data.ac_power_kw.toFixed(2)} kW</span></div>
+                        <div class="flex justify-between"><span>Energy:</span> <span class="font-semibold">${data.daily_energy_kwh.toFixed(1)} kWh</span></div>
+                        <div class="flex justify-between"><span>Status:</span> <span class="capitalize">${data.weather_condition.replace('_', ' ')}</span></div>
+                    </div>
+                </div>
+            `;
+
+            // Fix: Use school.coordinates
+            const marker = L.marker([school.coordinates.lat, school.coordinates.lng], { icon: customIcon })
+                .bindPopup(popupContent)
+                .addTo(mapRef.current!);
+            
+            markersRef.current.push(marker);
+        });
+
+    }, [schools, currentData]);
+
+    return (
+        <div className="bg-white p-4 rounded-xl shadow-sm mb-8">
+            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <span className="text-blue-600">📍</span> Live School Network
+            </h2>
+            <div ref={containerRef} className="h-[400px] w-full rounded-lg z-0 relative border border-slate-200" />
+        </div>
+    );
+};

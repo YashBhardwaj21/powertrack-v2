@@ -8,6 +8,7 @@ declare global {
     namespace Express {
         interface Request {
             user?: JWTPayload;
+            schoolId?: string;
         }
     }
 }
@@ -29,6 +30,8 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
     }
 };
 
+import { query } from '../db/index.js';
+
 export const authenticateApiKey = async (req: Request, res: Response, next: NextFunction) => {
     const apiKey = req.headers['x-api-key'] as string;
 
@@ -36,9 +39,22 @@ export const authenticateApiKey = async (req: Request, res: Response, next: Next
         return res.status(401).json({ error: 'API key required' });
     }
 
-    // API key validation will be done in the route handler
-    // We just check if it exists here
-    next();
+    try {
+        const result = await query(
+            'SELECT id FROM public.schools WHERE api_key = $1',
+            [apiKey]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(401).json({ error: 'Invalid API key' });
+        }
+
+        req.schoolId = result.rows[0].id;
+        next();
+    } catch (error) {
+        console.error('API key auth error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 };
 
 export const requireRole = (roles: string[]) => {

@@ -9,10 +9,10 @@ import { GridAnalytics } from '../components/GridAnalytics';
 import { CommunityEnergy } from '../components/CommunityEnergy';
 import { LineChart, BarChart3, Loader2 } from 'lucide-react';
 
-export const AnalyticsPage: React.FC = () => {
+export const Analytics: React.FC = () => {
     const { data, loading } = useDashboard();
 
-    if (loading || !data) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-500"/></div>;
+    if (loading || !data) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-500" /></div>;
 
     return (
         <div className="animate-in fade-in duration-500">
@@ -39,8 +39,8 @@ export const AnalyticsPage: React.FC = () => {
                     <BarChart3 className="text-blue-600" />
                     Technical Performance Analysis
                 </h2>
-                <PerformanceCharts 
-                    currentData={data.current_data} 
+                <PerformanceCharts
+                    currentData={data.current_data}
                     historicalData={data.historical_data}
                     schools={data.schools}
                 />
@@ -48,8 +48,8 @@ export const AnalyticsPage: React.FC = () => {
 
             {/* Section 3: System Health & AI (The "Admin" View) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                 <ModelHealthPanel metrics={data.model_metrics} />
-                 <StorageSystemStatus stats={data.storage_stats} />
+                <ModelHealthPanel metrics={data.model_metrics} />
+                <StorageSystemStatus stats={data.storage_stats} />
             </div>
         </div>
     );

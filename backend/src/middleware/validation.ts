@@ -32,5 +32,7 @@ export const telemetryValidation = [
     body('voltage').isFloat({ min: 0, max: 1000 }).withMessage('Invalid voltage value'),
     body('current_a').isFloat({ min: 0, max: 1000 }).withMessage('Invalid current value'),
     body('daily_kwh').optional().isFloat({ min: 0 }),
+    body('total_kwh').optional().isFloat({ min: 0 }),
+    body('irradiance_wm2').optional().isFloat({ min: 0 }),
     body('temp_c').optional().isFloat({ min: -50, max: 150 }),
 ];

@@ -25,7 +25,7 @@ export const PublicLobby: React.FC = () => {
                     Powering West Java's <span className="text-blue-600">Green Future</span>
                 </h1>
                 <p className="text-lg text-slate-500">
-                    Real-time monitoring of community solar installations across educational institutions. 
+                    Real-time monitoring of community solar installations across educational institutions.
                 </p>
             </section>
 
@@ -39,7 +39,7 @@ export const PublicLobby: React.FC = () => {
                             <p className="text-slate-500">Cumulative energy performance ranking</p>
                         </div>
                         <Link to="/login" className="text-blue-600 font-bold flex items-center gap-2 hover:gap-3 transition-all">
-                            Admin Login <ArrowRight className="w-4 h-4" />
+                            Staff Dashboard Login <ArrowRight className="w-4 h-4" />
                         </Link>
                     </div>
                     <div className="overflow-x-auto">

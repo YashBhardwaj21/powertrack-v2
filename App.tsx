@@ -1,11 +1,16 @@
-
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { DashboardLayout } from './components/DashboardLayout';
 import { PublicLobby } from './pages/PublicLobby';
-import { ControlRoom } from './pages/ControlRoom';
+import { ControlRoom } from './pages/ControlRoom'; // Kept for legacy ref use if needed
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { OverviewDashboard } from './pages/OverviewDashboard';
+import { AnalyticsDashboard } from './pages/AnalyticsDashboard';
+import { FinancialDashboard } from './pages/FinancialDashboard';
+import { AlertsDashboard } from './pages/AlertsDashboard';
+import { ManagementDashboard } from './pages/ManagementDashboard';
 import { Loader2 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api/v1';
@@ -67,6 +72,19 @@ const App: React.FC = () => {
         verifyToken();
     }, []);
 
+    const checkBackendHealth = async () => {
+        try {
+            const healthUrl = API_BASE.replace('/api/v1', '/health');
+            const response = await fetch(healthUrl);
+            if (response.ok) {
+                return 'Backend is running but API returned an error. Check database connection logs.';
+            }
+            return 'Backend is running but /health returned an error.';
+        } catch (error) {
+            return 'Backend server is NOT REACHABLE. Please ensure you ran "npm run dev" in the backend folder and it started successfully on port 3001.';
+        }
+    };
+
     const login = async (email: string, password: string) => {
         try {
             const response = await fetch(`${API_BASE}/auth/login`, {
@@ -87,6 +105,10 @@ const App: React.FC = () => {
             setUser(data.user);
         } catch (error: any) {
             console.error('Login fetch error:', error);
+            if (error.message === 'Failed to fetch') {
+                const healthReport = await checkBackendHealth();
+                throw new Error(`Connection Error: ${healthReport}`);
+            }
             throw error;
         }
     };
@@ -111,6 +133,10 @@ const App: React.FC = () => {
             setUser(data.user);
         } catch (error: any) {
             console.error('Registration fetch error:', error);
+            if (error.message === 'Failed to fetch') {
+                const healthReport = await checkBackendHealth();
+                throw new Error(`Connection Error: ${healthReport}`);
+            }
             throw error;
         }
     };
@@ -150,10 +176,17 @@ const App: React.FC = () => {
                         <Route path="/" element={<PublicLobby />} />
                         <Route path="/login" element={<LoginPage />} />
                         <Route path="/register" element={<RegisterPage />} />
-                        <Route
-                            path="/dashboard"
-                            element={user ? <ControlRoom /> : <Navigate to="/login" />}
-                        />
+
+                        {/* Protected Dashboard Routes */}
+                        <Route path="/dashboard" element={user ? <DashboardLayout /> : <Navigate to="/login" />}>
+                            <Route index element={<Navigate to="overview" replace />} />
+                            <Route path="overview" element={<OverviewDashboard />} />
+                            <Route path="analytics" element={<AnalyticsDashboard />} />
+                            <Route path="financial" element={<FinancialDashboard />} />
+                            <Route path="alerts" element={<AlertsDashboard />} />
+                            <Route path="manage" element={<ManagementDashboard />} />
+                        </Route>
+
                         <Route path="*" element={<Navigate to="/" />} />
                     </Routes>
                 </Layout>

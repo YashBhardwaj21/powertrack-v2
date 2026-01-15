@@ -17,12 +17,12 @@ const DefaultIcon = L.icon({
 
 L.Marker.prototype.options.icon = DefaultIcon;
 
-interface SolarMapProps {
-    schools: School[];
-    currentData: Telemetry[];
+export interface SolarMapProps {
+    schools?: School[];
+    currentData?: Telemetry[];
 }
 
-export const SolarMap: React.FC<SolarMapProps> = ({ schools, currentData }) => {
+export const SolarMap: React.FC<SolarMapProps> = ({ schools = [], currentData = [] }) => {
     const mapRef = useRef<L.Map | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const markersRef = useRef<L.Marker[]>([]);
@@ -88,7 +88,7 @@ export const SolarMap: React.FC<SolarMapProps> = ({ schools, currentData }) => {
             const marker = L.marker([school.coordinates.lat, school.coordinates.lng], { icon: customIcon })
                 .bindPopup(popupContent)
                 .addTo(mapRef.current!);
-            
+
             markersRef.current.push(marker);
         });
 

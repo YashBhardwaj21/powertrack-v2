@@ -22,12 +22,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
     return (
         <div className={`min-h-screen ${bgClass} font-sans text-slate-800`}>
-            {showSidebar && <Sidebar />}
-
-            <main className={`transition-all duration-300 min-h-screen ${showSidebar ? 'ml-64 p-8' : ''}`}>
-                <div className={`${showSidebar ? 'container mx-auto max-w-7xl' : 'w-full'}`}>
-                    {children}
-                </div>
+            {/* 
+                Sidebar is now managed by DashboardLayout for authenticated pages.
+                This Layout component handles the high-level routing shell.
+            */}
+            <main className="w-full">
+                {children}
             </main>
         </div>
     );

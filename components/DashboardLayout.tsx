@@ -6,10 +6,10 @@ import { DashboardProvider } from '../context/DashboardContext';
 export const DashboardLayout: React.FC = () => {
     return (
         <DashboardProvider>
-            <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
+            <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-800 overflow-hidden">
                 <Sidebar />
-                <main className="ml-64 p-8 transition-all duration-300 min-h-screen">
-                    <div className="container mx-auto max-w-7xl">
+                <main className="flex-1 min-w-0 h-full overflow-y-auto">
+                    <div className="max-w-[1440px] mx-auto p-6">
                         <Outlet />
                     </div>
                 </main>

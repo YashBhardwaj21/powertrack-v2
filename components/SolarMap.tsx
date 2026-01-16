@@ -77,9 +77,9 @@ export const SolarMap: React.FC<SolarMapProps> = ({ schools = [], currentData = 
                 <div class="p-2 font-sans min-w-[200px]">
                     <h3 class="font-bold text-blue-900 mb-2 border-b pb-1">${school.name}</h3>
                     <div class="space-y-1 text-sm text-gray-700">
-                        <div class="flex justify-between"><span>Power:</span> <span class="font-semibold">${data.ac_power_kw.toFixed(2)} kW</span></div>
-                        <div class="flex justify-between"><span>Energy:</span> <span class="font-semibold">${data.daily_energy_kwh.toFixed(1)} kWh</span></div>
-                        <div class="flex justify-between"><span>Status:</span> <span class="capitalize">${data.weather_condition.replace('_', ' ')}</span></div>
+                        <div class="flex justify-between"><span>Power:</span> <span class="font-semibold">${(data.ac_power_kw || 0).toFixed(2)} kW</span></div>
+                        <div class="flex justify-between"><span>Energy:</span> <span class="font-semibold">${(data.daily_energy_kwh || 0).toFixed(1)} kWh</span></div>
+                        <div class="flex justify-between"><span>Status:</span> <span class="capitalize">${(data.weather_condition || 'sunny').replace('_', ' ')}</span></div>
                     </div>
                 </div>
             `;
@@ -95,11 +95,8 @@ export const SolarMap: React.FC<SolarMapProps> = ({ schools = [], currentData = 
     }, [schools, currentData]);
 
     return (
-        <div className="bg-white p-4 rounded-xl shadow-sm mb-8">
-            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
-                <span className="text-blue-600">📍</span> Live School Network
-            </h2>
-            <div ref={containerRef} className="h-[400px] w-full rounded-lg z-0 relative border border-slate-200" />
+        <div className="relative h-full w-full">
+            <div ref={containerRef} className="absolute inset-0 z-0 bg-slate-100" />
         </div>
     );
 };

@@ -5,7 +5,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3002';
 
 // Helper to get auth token
-const getAuthToken = () => localStorage.getItem('auth_token');
+const getAuthToken = () => sessionStorage.getItem('auth_token');
 
 // Helper to make authenticated requests
 const fetchWithAuth = async (url: string, options: RequestInit = {}) => {

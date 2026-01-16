@@ -24,6 +24,8 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     const [locale, setLocale] = useState<'en' | 'id'>('en');
 
     useEffect(() => {
+        let unsubscribe: (() => void) | undefined;
+
         const init = async () => {
             try {
                 const initialData = await fetchDashboardData();
@@ -32,24 +34,18 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
                 setIsConnected(true);
 
                 // Start "MQTT" subscription
-                // Fix: subscribeToTelemetry requires schoolId as first argument. Passing null for "all"
-                const unsubscribe = subscribeToTelemetry(null, (telemetry, alerts, community) => {
+                unsubscribe = subscribeToTelemetry(null, (telemetry, alerts, community) => {
                     setData(prev => {
                         if (!prev) return null;
-                        // Shallow copy optimization
                         return {
                             ...prev,
-                            current_data: telemetry,
-                            alerts: alerts,
-                            community_stats: community
+                            current_data: telemetry || [],
+                            alerts: alerts || [],
+                            community_stats: community || prev.community_stats
                         };
                     });
                     setLastUpdated(new Date().toLocaleTimeString());
                 });
-
-                return () => {
-                    unsubscribe();
-                };
             } catch (e) {
                 console.error("Failed to initialize dashboard", e);
                 setError("Failed to load system data. Please refresh.");
@@ -58,6 +54,10 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
         };
 
         init();
+
+        return () => {
+            if (unsubscribe) unsubscribe();
+        };
     }, []);
 
     return (

@@ -5,6 +5,8 @@ import { AlertTriangle, WifiOff, Zap, Activity, CheckCircle } from 'lucide-react
 
 interface AlertsPanelProps {
     alerts: Alert[];
+    totalDevices?: number;
+    onlineDevices?: number;
 }
 
 const getAlertIcon = (type: FaultType) => {
@@ -25,20 +27,34 @@ const getSeverityStyles = (severity: string) => {
     }
 };
 
-export const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts }) => {
+export const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts, totalDevices, onlineDevices }) => {
     return (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-full flex flex-col">
-            <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                    <AlertTriangle className="w-5 h-5 text-amber-500" />
-                    Active Incidents
-                </h3>
-                <span className={`text-xs px-2 py-1 rounded-full font-medium ${alerts.length > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                    {alerts.length} Active
-                </span>
+            <div className="p-4 border-b border-slate-100 bg-slate-50">
+                <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-amber-500" />
+                        Active Incidents
+                    </h3>
+                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${alerts.length > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                        {alerts.length} Active
+                    </span>
+                </div>
+                {totalDevices !== undefined && onlineDevices !== undefined && (
+                    <div className="mt-3">
+                        <div className="flex justify-between text-[10px] text-slate-500 mb-1 uppercase font-bold">
+                            <span>System Health</span>
+                            <span>{onlineDevices}/{totalDevices} Online</span>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden flex">
+                            <div className="bg-emerald-500 h-full" style={{ width: `${(onlineDevices / totalDevices) * 100}%` }} />
+                            <div className="bg-red-400 h-full" style={{ width: `${((totalDevices - onlineDevices) / totalDevices) * 100}%` }} />
+                        </div>
+                    </div>
+                )}
             </div>
-            
-            <div className="overflow-y-auto p-4 space-y-3 flex-grow custom-scrollbar" style={{maxHeight: '300px'}}>
+
+            <div className="overflow-y-auto p-4 space-y-3 flex-grow custom-scrollbar" style={{ maxHeight: '300px' }}>
                 {alerts.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-slate-400 py-8">
                         <CheckCircle className="w-12 h-12 mb-2 text-green-400" />
@@ -53,7 +69,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts }) => {
                             <div className="flex-grow">
                                 <div className="flex justify-between items-start">
                                     <span className="font-bold text-sm">{alert.school_name}</span>
-                                    <span className="text-[10px] opacity-75 uppercase tracking-wider">{alert.timestamp.split('T')[1].substring(0,8)}</span>
+                                    <span className="text-[10px] opacity-75 uppercase tracking-wider">{alert.timestamp.split('T')[1].substring(0, 8)}</span>
                                 </div>
                                 <p className="text-xs mt-1 font-medium">{alert.message}</p>
                                 <p className="text-[10px] mt-1 opacity-80">ID: {alert.school_id}</p>

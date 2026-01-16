@@ -1,9 +1,9 @@
-
 import React from 'react';
 import { DashboardData } from '../types';
 import { Zap, DollarSign, Leaf, Activity } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
 import { TRANSLATIONS } from '../constants';
+import { formatPower, formatEnergy, formatCurrency, formatCO2 } from '../utils/formatters';
 
 interface StatsOverviewProps {
     data: DashboardData;
@@ -13,58 +13,75 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ data }) => {
     const { locale } = useDashboard();
     const t = TRANSLATIONS[locale];
 
-    const totalPower = data.current_data.reduce((sum, d) => sum + d.ac_power_kw, 0);
-    const totalEnergy = data.current_data.reduce((sum, d) => sum + d.daily_energy_kwh, 0);
-    const totalSavings = totalEnergy * data.metadata.electricity_rate_idr;
-    const totalCO2 = totalEnergy * data.metadata.carbon_intensity_kg_per_kwh;
+    // Safe access to data properties
+    const currentData = data?.current_data || [];
+    const metadata = data?.metadata || { electricity_rate_idr: 0, carbon_intensity_kg_per_kwh: 0 };
+
+    const totalPower = currentData.reduce((sum, d) => sum + (d.ac_power_kw || 0), 0);
+    const totalEnergy = currentData.reduce((sum, d) => sum + (d.daily_energy_kwh || 0), 0);
+    const totalSavings = totalEnergy * (metadata.electricity_rate_idr || 0);
+    const totalCO2 = totalEnergy * (metadata.carbon_intensity_kg_per_kwh || 0);
+
+    // Determine global status for the row
+    const hasData = currentData.length > 0 && totalPower > 0;
 
     const cards = [
         {
             label: t.total_power,
-            value: `${totalPower.toFixed(1)} kW`,
+            value: formatPower(totalPower),
             icon: Zap,
-            color: "text-yellow-500",
-            bg: "bg-yellow-50",
-            border: "border-yellow-200"
+            color: "text-amber-600",
+            bg: "bg-amber-50",
+            borderColor: "border-amber-100"
         },
         {
             label: t.daily_energy,
-            value: `${totalEnergy.toFixed(1)} kWh`,
+            value: formatEnergy(totalEnergy),
             icon: Activity,
-            color: "text-blue-500",
+            color: "text-blue-600",
             bg: "bg-blue-50",
-            border: "border-blue-200"
+            borderColor: "border-blue-100"
         },
         {
             label: t.savings,
-            value: `Rp ${(totalSavings / 1000).toFixed(0)}k`,
+            value: formatCurrency(totalSavings),
             icon: DollarSign,
-            color: "text-green-600",
-            bg: "bg-green-50",
-            border: "border-green-200"
+            color: "text-emerald-600",
+            bg: "bg-emerald-50",
+            borderColor: "border-emerald-100"
         },
         {
             label: t.co2,
-            value: `${totalCO2.toFixed(1)} kg`,
+            value: formatCO2(totalCO2),
             icon: Leaf,
-            color: "text-emerald-500",
-            bg: "bg-emerald-50",
-            border: "border-emerald-200"
+            color: "text-teal-600",
+            bg: "bg-teal-50",
+            borderColor: "border-teal-100"
         }
     ];
 
+    if (!hasData) {
+        return (
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    <p className="text-sm font-medium text-slate-600">Waiting for real-time telemetry from connected schools...</p>
+                </div>
+                <div className="text-xs text-slate-400 font-mono">System Standby</div>
+            </div>
+        );
+    }
+
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {cards.map((card, idx) => (
-                <div key={idx} className={`bg-white rounded-xl shadow-sm p-6 border-l-4 ${card.border} hover:shadow-md transition-shadow`}>
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <p className="text-slate-500 text-sm font-medium mb-1">{card.label}</p>
-                            <h3 className="text-2xl font-bold text-slate-800">{card.value}</h3>
-                        </div>
-                        <div className={`p-3 rounded-full ${card.bg}`}>
-                            <card.icon className={`w-6 h-6 ${card.color}`} />
-                        </div>
+                <div key={idx} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex items-center gap-4 hover:border-slate-300 transition-colors">
+                    <div className={`p-2.5 rounded-lg ${card.bg} ${card.color} border ${card.borderColor}`}>
+                        <card.icon className="w-6 h-6" />
+                    </div>
+                    <div>
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-0.5">{card.label}</p>
+                        <h3 className="text-2xl font-bold text-slate-900 leading-none">{card.value}</h3>
                     </div>
                 </div>
             ))}

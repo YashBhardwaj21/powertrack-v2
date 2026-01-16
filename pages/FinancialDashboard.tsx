@@ -13,14 +13,40 @@ export const FinancialDashboard: React.FC = () => {
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
-            <div>
-                <h1 className="text-2xl font-bold text-slate-900">Financial Impact</h1>
-                <p className="text-slate-500">ROI analysis, savings tracking, and environmental benefits</p>
-            </div>
+            {/* ---------- Header ---------- */}
+            <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-5 border-b border-slate-200">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-900 tracking-tight leading-none uppercase">
+                        Financial & Impact Overview
+                    </h1>
+                    <p className="mt-2 text-xs text-slate-500 font-medium">
+                        Detailed breakdown of investment recovery and environmental performance
+                    </p>
+                </div>
+            </header>
 
-            <div className="space-y-8">
-                <FinancialAnalysis stats={data.financial_stats} />
-                <ImpactSection data={data} />
+            <div className="grid grid-cols-12 gap-6">
+                {/* Investment Analysis - 7 Columns */}
+                <div className="col-span-12 xl:col-span-7 space-y-4">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="h-4 w-1 bg-emerald-500 rounded-full" />
+                        <h2 className="text-[10px] font-bold text-slate-800 uppercase tracking-widest">
+                            Investment Analysis
+                        </h2>
+                    </div>
+                    <FinancialAnalysis stats={data.financial_stats} />
+                </div>
+
+                {/* ESG Section - 5 Columns */}
+                <div className="col-span-12 xl:col-span-5 space-y-4">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="h-4 w-1 bg-teal-500 rounded-full" />
+                        <h2 className="text-[10px] font-bold text-slate-800 uppercase tracking-widest">
+                            Environmental Impact
+                        </h2>
+                    </div>
+                    <ImpactSection data={data} />
+                </div>
             </div>
         </div>
     );

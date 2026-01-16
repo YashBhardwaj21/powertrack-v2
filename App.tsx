@@ -2,15 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { DashboardLayout } from './components/DashboardLayout';
+import { ToastProvider } from './context/ToastContext';
 import { PublicLobby } from './pages/PublicLobby';
-import { ControlRoom } from './pages/ControlRoom'; // Kept for legacy ref use if needed
+import { ControlRoom } from './pages/ControlRoom';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { OverviewDashboard } from './pages/OverviewDashboard';
-import { AnalyticsDashboard } from './pages/AnalyticsDashboard';
+import { Analytics } from './pages/Analytics';
 import { FinancialDashboard } from './pages/FinancialDashboard';
 import { AlertsDashboard } from './pages/AlertsDashboard';
-import { ManagementDashboard } from './pages/ManagementDashboard';
 import { Loader2 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api/v1';
@@ -46,7 +46,7 @@ const App: React.FC = () => {
     useEffect(() => {
         // Check for existing token and verify it
         const verifyToken = async () => {
-            const token = localStorage.getItem('auth_token');
+            const token = sessionStorage.getItem('auth_token');
             if (token) {
                 try {
                     const response = await fetch(`${API_BASE}/auth/verify`, {
@@ -59,11 +59,11 @@ const App: React.FC = () => {
                         const data = await response.json();
                         setUser(data.user);
                     } else {
-                        localStorage.removeItem('auth_token');
+                        sessionStorage.removeItem('auth_token');
                     }
                 } catch (error) {
                     console.error('Token verification failed:', error);
-                    localStorage.removeItem('auth_token');
+                    sessionStorage.removeItem('auth_token');
                 }
             }
             setLoading(false);
@@ -101,7 +101,7 @@ const App: React.FC = () => {
             }
 
             const data = await response.json();
-            localStorage.setItem('auth_token', data.token);
+            sessionStorage.setItem('auth_token', data.token);
             setUser(data.user);
         } catch (error: any) {
             console.error('Login fetch error:', error);
@@ -129,7 +129,7 @@ const App: React.FC = () => {
             }
 
             const data = await response.json();
-            localStorage.setItem('auth_token', data.token);
+            sessionStorage.setItem('auth_token', data.token);
             setUser(data.user);
         } catch (error: any) {
             console.error('Registration fetch error:', error);
@@ -143,7 +143,7 @@ const App: React.FC = () => {
 
     const logout = async () => {
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = sessionStorage.getItem('auth_token');
             if (token) {
                 await fetch(`${API_BASE}/auth/logout`, {
                     method: 'POST',
@@ -155,7 +155,7 @@ const App: React.FC = () => {
         } catch (error) {
             console.error('Logout error:', error);
         } finally {
-            localStorage.removeItem('auth_token');
+            sessionStorage.removeItem('auth_token');
             setUser(null);
         }
     };
@@ -169,29 +169,31 @@ const App: React.FC = () => {
     }
 
     return (
-        <AuthContext.Provider value={{ user, login, register, logout, loading }}>
-            <HashRouter>
-                <Layout>
-                    <Routes>
-                        <Route path="/" element={<PublicLobby />} />
-                        <Route path="/login" element={<LoginPage />} />
-                        <Route path="/register" element={<RegisterPage />} />
+        <ToastProvider>
+            <AuthContext.Provider value={{ user, login, register, logout, loading }}>
+                <HashRouter>
+                    <Layout>
+                        <Routes>
+                            <Route path="/" element={<PublicLobby />} />
+                            <Route path="/login" element={<LoginPage />} />
+                            <Route path="/register" element={<RegisterPage />} />
 
-                        {/* Protected Dashboard Routes */}
-                        <Route path="/dashboard" element={user ? <DashboardLayout /> : <Navigate to="/login" />}>
-                            <Route index element={<Navigate to="overview" replace />} />
-                            <Route path="overview" element={<OverviewDashboard />} />
-                            <Route path="analytics" element={<AnalyticsDashboard />} />
-                            <Route path="financial" element={<FinancialDashboard />} />
-                            <Route path="alerts" element={<AlertsDashboard />} />
-                            <Route path="manage" element={<ManagementDashboard />} />
-                        </Route>
+                            {/* Protected Dashboard Routes */}
+                            <Route path="/dashboard" element={user ? <DashboardLayout /> : <Navigate to="/login" />}>
+                                <Route index element={<Navigate to="overview" replace />} />
+                                <Route path="overview" element={<OverviewDashboard />} />
+                                <Route path="analytics" element={<Analytics />} />
+                                <Route path="financial" element={<FinancialDashboard />} />
+                                <Route path="alerts" element={<AlertsDashboard />} />
+                                <Route path="manage" element={<ControlRoom />} />
+                            </Route>
 
-                        <Route path="*" element={<Navigate to="/" />} />
-                    </Routes>
-                </Layout>
-            </HashRouter>
-        </AuthContext.Provider>
+                            <Route path="*" element={<Navigate to="/" />} />
+                        </Routes>
+                    </Layout>
+                </HashRouter>
+            </AuthContext.Provider>
+        </ToastProvider>
     );
 };
 

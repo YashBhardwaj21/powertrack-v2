@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, Link } from 'react-router-dom';
 import {
     LayoutDashboard,
     BarChart3,
@@ -28,27 +28,25 @@ export const Sidebar: React.FC = () => {
             icon: LayoutDashboard,
             label: auth?.user?.role === 'admin' ? 'Platform Overview' : 'School Overview'
         },
-        { path: '/dashboard/analytics', icon: BarChart3, label: 'Analytics' },
+        { path: '/dashboard/analytics', icon: BarChart3, label: 'Technical Analytics' },
         { path: '/dashboard/financial', icon: Wallet, label: 'Financial & Impact' },
-        { path: '/dashboard/alerts', icon: Bell, label: 'Alerts & Health' },
+        { path: '/dashboard/alerts', icon: Bell, label: 'Health & Diagnostics' },
+        { path: '/dashboard/manage', icon: Settings, label: 'Control & Admin' },
     ];
 
-    // Only show Management to admins or if user has no school
-    if (auth?.user?.role === 'admin' || !auth?.user?.school_id) {
-        navItems.push({ path: '/dashboard/manage', icon: Settings, label: 'Management' });
-    }
-
     return (
-        <aside className="fixed left-0 top-0 h-screen w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-50">
+        <aside className="w-64 h-full bg-slate-900 border-r border-slate-800 flex flex-col shrink-0 overflow-hidden">
             {/* Logo Area */}
-            <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-                <div className="bg-blue-600 p-2 rounded-lg">
-                    <Factory className="text-white w-6 h-6" />
-                </div>
-                <div>
-                    <h1 className="text-white font-bold text-lg tracking-tight">PowerTrack</h1>
-                    <p className="text-slate-500 text-xs font-medium uppercase tracking-wider">Enterprise v2.0</p>
-                </div>
+            <div className="p-6 border-b border-slate-800">
+                <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                    <div className="bg-blue-600 p-2 rounded-lg">
+                        <Factory className="text-white w-6 h-6" />
+                    </div>
+                    <div>
+                        <h1 className="text-white font-semibold text-lg tracking-tight">PowerTrack</h1>
+                        <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Enterprise v2.0</p>
+                    </div>
+                </Link>
             </div>
 
             {/* Navigation */}
@@ -74,9 +72,9 @@ export const Sidebar: React.FC = () => {
             {/* User Profile & Logout */}
             <div className="p-4 border-t border-slate-800">
                 <div className="bg-slate-800/50 rounded-xl p-4 mb-4">
-                    <p className="text-white text-sm font-medium truncate">{auth?.user?.full_name || 'User'}</p>
+                    <p className="text-white text-sm font-semibold truncate">{auth?.user?.full_name || 'User'}</p>
                     <p className="text-slate-500 text-xs truncate mt-0.5">{auth?.user?.email}</p>
-                    <p className="text-xs text-blue-400 mt-2 font-mono bg-blue-400/10 inline-block px-2 py-0.5 rounded">
+                    <p className="text-[10px] text-blue-400 mt-2 font-mono bg-blue-400/10 inline-block px-2 py-0.5 rounded font-bold">
                         {auth?.user?.role?.toUpperCase()}
                     </p>
                 </div>

@@ -1,3 +1,20 @@
+export interface DeviceProfile {
+    id: string;
+    name: string;
+    vendor: string | null;
+    protocol: 'http' | 'mqtt';
+    field_map: Record<string, string>;
+    created_at: Date;
+}
+
+export interface SystemParameter {
+    key: string;
+    value: number;
+    unit: string | null;
+    label: string | null;
+    updated_at: Date;
+}
+
 export interface User {
     id: string;
     email: string;
@@ -15,17 +32,25 @@ export interface School {
     name: string;
     type: string | null;
     district: string | null;
-    latitude: number | null;
-    longitude: number | null;
+    // Standardized Coordinates Object
+    coordinates: {
+        lat: number | null;
+        lng: number | null;
+    };
+    // Deprecated flat fields (still in DB but removed from API response)
+    latitude?: number | null;
+    longitude?: number | null;
+
     total_capacity_kwp: number | null;
     total_cost_idr: number | null;
-    api_key: string;
+    api_key: string | null;
+    api_key_hashed: string | null;
+    device_profile_id: string | null;
     created_at: Date;
     updated_at: Date;
 }
 
 export interface Telemetry {
-    id: number;
     school_id: string;
     timestamp: Date;
     ac_power_kw: number | null;
@@ -42,6 +67,7 @@ export interface Telemetry {
     grid_import_kw: number | null;
     weather_condition: string | null;
     fault: 'none' | 'underperf' | 'comm_down' | 'ground_fault' | 'arc_fault';
+    quality_score: number;
 }
 
 export interface Alert {
@@ -64,6 +90,12 @@ export interface LeaderboardEntry {
     rank: number;
 }
 
+export type HistoricalPoint = {
+    timestamp: string; // ISO String
+    avg_power?: number;
+    energy?: number;
+};
+
 export interface DashboardSummary {
     schools: School[];
     current_data: Telemetry[];
@@ -79,6 +111,11 @@ export interface DashboardSummary {
         electricity_rate_idr: number;
         carbon_intensity_kg_per_kwh: number;
     };
+    // Standardized Historical Data
+    daily_historical: Array<{ date: string; total_energy_kwh: number }>;
+    hourly_historical: Array<{ hour: string; avg_power: number; energy: number }>;
+
+    // @deprecated Use daily_historical or hourly_historical
     historical_data: Array<{
         date: string;
         total_energy_kwh: number;
@@ -124,3 +161,4 @@ export interface JWTPayload {
     role: string;
     schoolId: string | null;
 }
+

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { DashboardLayout } from './components/DashboardLayout';
 import { ToastProvider } from './context/ToastContext';
@@ -34,6 +34,9 @@ interface AuthContextType {
     login: (email: string, password: string) => Promise<void>;
     register: (email: string, password: string, full_name: string, role: string, school_id?: string) => Promise<void>;
     logout: () => Promise<void>;
+    refreshUser: () => Promise<void>;
+    // ⚡ Optimistic Update: Allow components to update user state directly if they have authoritative data
+    updateUser: (user: User) => void;
     loading: boolean;
 }
 
@@ -43,33 +46,52 @@ const App: React.FC = () => {
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        // Check for existing token and verify it
-        const verifyToken = async () => {
-            const token = sessionStorage.getItem('auth_token');
-            if (token) {
-                try {
-                    const response = await fetch(`${API_BASE}/auth/verify`, {
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                        },
-                    });
+    const refreshUser = async () => {
+        const token = localStorage.getItem('auth_token');
+        if (token) {
+            try {
+                const response = await fetch(`${API_BASE}/auth/verify`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
 
-                    if (response.ok) {
-                        const data = await response.json();
-                        setUser(data.user);
-                    } else {
-                        sessionStorage.removeItem('auth_token');
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // Rotate token if provided (Essential for permission updates)
+                    if (data.token) {
+                        localStorage.setItem('auth_token', data.token);
                     }
-                } catch (error) {
-                    console.error('Token verification failed:', error);
-                    sessionStorage.removeItem('auth_token');
-                }
-            }
-            setLoading(false);
-        };
 
-        verifyToken();
+                    setUser(data.user);
+                } else {
+                    localStorage.removeItem('auth_token');
+                    setUser(null);
+                }
+            } catch (error) {
+                console.error('Token verification failed:', error);
+                localStorage.removeItem('auth_token');
+                setUser(null);
+            }
+        }
+        setLoading(false);
+    };
+
+    useEffect(() => {
+        refreshUser();
+
+        // 💓 Auth Heartbeat: Check session validity every 60s
+        // This ensures if a user is unassigned/archived in the background, their local state updates.
+        const interval = setInterval(() => {
+            refreshUser();
+        }, 60000);
+
+        // Note: Removed auto-logout on window close per user request
+        // Session persists across page refreshes
+        // Only logout when user explicitly clicks "Sign Out"
+
+        return () => clearInterval(interval);
     }, []);
 
     const checkBackendHealth = async () => {
@@ -101,7 +123,7 @@ const App: React.FC = () => {
             }
 
             const data = await response.json();
-            sessionStorage.setItem('auth_token', data.token);
+            localStorage.setItem('auth_token', data.token);
             setUser(data.user);
         } catch (error: any) {
             console.error('Login fetch error:', error);
@@ -129,7 +151,7 @@ const App: React.FC = () => {
             }
 
             const data = await response.json();
-            sessionStorage.setItem('auth_token', data.token);
+            localStorage.setItem('auth_token', data.token);
             setUser(data.user);
         } catch (error: any) {
             console.error('Registration fetch error:', error);
@@ -143,7 +165,7 @@ const App: React.FC = () => {
 
     const logout = async () => {
         try {
-            const token = sessionStorage.getItem('auth_token');
+            const token = localStorage.getItem('auth_token');
             if (token) {
                 await fetch(`${API_BASE}/auth/logout`, {
                     method: 'POST',
@@ -155,7 +177,7 @@ const App: React.FC = () => {
         } catch (error) {
             console.error('Logout error:', error);
         } finally {
-            sessionStorage.removeItem('auth_token');
+            localStorage.removeItem('auth_token');
             setUser(null);
         }
     };
@@ -170,8 +192,8 @@ const App: React.FC = () => {
 
     return (
         <ToastProvider>
-            <AuthContext.Provider value={{ user, login, register, logout, loading }}>
-                <HashRouter>
+            <AuthContext.Provider value={{ user, login, register, logout, refreshUser, updateUser: setUser, loading }}>
+                <BrowserRouter>
                     <Layout>
                         <Routes>
                             <Route path="/" element={<PublicLobby />} />
@@ -191,7 +213,7 @@ const App: React.FC = () => {
                             <Route path="*" element={<Navigate to="/" />} />
                         </Routes>
                     </Layout>
-                </HashRouter>
+                </BrowserRouter>
             </AuthContext.Provider>
         </ToastProvider>
     );

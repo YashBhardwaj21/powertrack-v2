@@ -17,10 +17,13 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ data }) => {
     const currentData = data?.current_data || [];
     const metadata = data?.metadata || { electricity_rate_idr: 0, carbon_intensity_kg_per_kwh: 0 };
 
-    const totalPower = currentData.reduce((sum, d) => sum + (d.ac_power_kw || 0), 0);
-    const totalEnergy = currentData.reduce((sum, d) => sum + (d.daily_energy_kwh || 0), 0);
-    const totalSavings = totalEnergy * (metadata.electricity_rate_idr || 0);
-    const totalCO2 = totalEnergy * (metadata.carbon_intensity_kg_per_kwh || 0);
+    // Double safety for null vs undefined
+    const safeMetadata = metadata || { electricity_rate_idr: 0, carbon_intensity_kg_per_kwh: 0 };
+
+    const totalPower = currentData.reduce((sum, d) => sum + (Number(d.ac_power_kw) || 0), 0);
+    const totalEnergy = currentData.reduce((sum, d) => sum + (Number(d.daily_energy_kwh) || 0), 0);
+    const totalSavings = totalEnergy * (safeMetadata.electricity_rate_idr || 0);
+    const totalCO2 = totalEnergy * (safeMetadata.carbon_intensity_kg_per_kwh || 0);
 
     // Determine global status for the row
     const hasData = currentData.length > 0 && totalPower > 0;

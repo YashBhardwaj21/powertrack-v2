@@ -13,12 +13,16 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
     currentData = [],
     metadata = { electricity_rate_idr: 0, carbon_intensity_kg_per_kwh: 0 }
 }) => {
+    // Safety check for nulls (defaults only handle undefined)
+    const safeSchools = schools || [];
+    const safeData = currentData || [];
+    const safeMetadata = metadata || { electricity_rate_idr: 0, carbon_intensity_kg_per_kwh: 0 };
     // Combine and sort data
-    const sortedData = [...currentData]
-        .sort((a, b) => b.daily_energy_kwh - a.daily_energy_kwh)
+    const sortedData = [...safeData]
+        .sort((a, b) => (Number(b.daily_energy_kwh) || 0) - (Number(a.daily_energy_kwh) || 0))
         .map((data, index) => {
             // Fix: Use school.id instead of school.school_id
-            const school = schools.find(s => s.id === data.school_id);
+            const school = safeSchools.find(s => s.id === data.school_id);
             return { ...data, school, rank: index + 1 };
         });
 
@@ -63,10 +67,10 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                                         <div className="text-[10px] text-slate-400 uppercase tracking-wide">{row.school?.district}</div>
                                     </td>
                                     <td className="px-4 py-3 text-right font-mono text-slate-700 font-bold text-sm">
-                                        {(row.daily_energy_kwh || 0).toFixed(1)} <span className="text-[10px] font-normal text-slate-400">kWh</span>
+                                        {(Number(row.daily_energy_kwh) || 0).toFixed(1)} <span className="text-[10px] font-normal text-slate-400">kWh</span>
                                     </td>
                                     <td className="px-4 py-3 text-right text-emerald-600 font-medium text-sm hidden sm:table-cell">
-                                        {((row.daily_energy_kwh || 0) * (metadata.electricity_rate_idr || 0) / 1000).toFixed(0)}k
+                                        {(Number(row.daily_energy_kwh || 0) * (safeMetadata.electricity_rate_idr || 0) / 1000).toFixed(0)}k
                                     </td>
                                 </tr>
                             ))

@@ -1,4 +1,3 @@
-
 export interface School {
   id: string;
   name: string;
@@ -11,6 +10,7 @@ export interface School {
     lat: number;
     lng: number;
   };
+  // Removed flat latitude/longitude to enforce structured access
 }
 
 export interface Profile {
@@ -61,6 +61,9 @@ export interface Telemetry {
   grid_import_kw: number;
   weather_condition: string;
   fault: FaultType;
+  quality_score?: number;
+  is_backfill?: boolean;
+  is_suspect_time?: boolean;
 }
 
 export interface Alert {
@@ -123,8 +126,9 @@ export interface ModelMetrics {
 }
 
 export interface HistoricalData {
-  date: string;
-  total_energy_kwh: number;
+  hour: string;
+  avg_power: number | null;
+  energy: number | null;
 }
 
 export interface DashboardData {
@@ -133,8 +137,22 @@ export interface DashboardData {
   alerts: Alert[];
   community_stats: CommunityStats;
   metadata: SchoolMetadata;
-  historical_data: HistoricalData[];
+  historical_data: HistoricalData[]; // Deprecated
+  daily_historical: Array<{ date: string; total_energy_kwh: number }>;
+  hourly_historical: Array<{ hour: string; avg_power: number; energy: number }>;
   financial_stats: FinancialStats;
   storage_stats: StorageStats;
   model_metrics: ModelMetrics;
+  needs_school_assignment?: boolean;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: 'admin' | 'school_admin' | 'viewer';
+  school_id: string | null;
+  school_name?: string; // For admin list
+  created_at: string;
+  last_login: string | null;
 }

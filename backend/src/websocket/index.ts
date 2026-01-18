@@ -47,18 +47,51 @@ export const initWebSocketServer = () => {
     console.log(`🔌 WebSocket server running on port ${config.wsPort}`);
 };
 
+const lastBroadcastTimes = new Map<string, number>();
+const BROADCAST_THROTTLE_MS = 2000;
+
+const broadcastTimers = new Map<string, NodeJS.Timeout>();
+
 export const broadcastTelemetryUpdate = (telemetryData: any) => {
+    const schoolId = telemetryData.school_id;
+    const now = Date.now();
+    const lastTime = lastBroadcastTimes.get(schoolId) || 0;
+
+    // Clear any pending trailing broadcast
+    if (broadcastTimers.has(schoolId)) {
+        clearTimeout(broadcastTimers.get(schoolId)!);
+        broadcastTimers.delete(schoolId);
+    }
+
+    if (now - lastTime < BROADCAST_THROTTLE_MS) {
+        // Schedule trailing broadcast
+        const delay = BROADCAST_THROTTLE_MS - (now - lastTime);
+        const timer = setTimeout(() => {
+            // Re-verify valid WS connection state if needed, but here simple recursive call or direct send
+            // Better to directly send to avoid loop, or set lastTime and send.
+            lastBroadcastTimes.set(schoolId, Date.now());
+            _sendToSubscribers(schoolId, telemetryData);
+            broadcastTimers.delete(schoolId);
+        }, delay);
+        broadcastTimers.set(schoolId, timer);
+        return;
+    }
+
+    lastBroadcastTimes.set(schoolId, now);
+    _sendToSubscribers(schoolId, telemetryData);
+};
+
+const _sendToSubscribers = (schoolId: string, data: any) => {
     const message = JSON.stringify({
         type: 'telemetry_update',
-        data: telemetryData,
+        data: data,
         timestamp: new Date().toISOString(),
     });
 
     clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {
-            // Only send to clients subscribed to this school or all schools
             const clientSchoolId = (client as any).schoolId;
-            if (!clientSchoolId || clientSchoolId === telemetryData.school_id || clientSchoolId === 'all') {
+            if (!clientSchoolId || clientSchoolId === schoolId || clientSchoolId === 'all') {
                 client.send(message);
             }
         }

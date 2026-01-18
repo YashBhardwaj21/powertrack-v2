@@ -3,8 +3,12 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { query } from '../db/index.js';
 import { config } from '../config/index.js';
-import { validate, loginValidation, registerValidation } from '../middleware/validation.js';
+import { validate } from '../middleware/validation.js';
+import { authLimiter } from '../middleware/rateLimit.js';
+import { loginSchema, registerSchema } from '../validation/schemas.js';
 import { User } from '../types/index.js';
+import { logger } from '../utils/logger.js';
+import { errorResponse } from '../utils/errorResponse.js';
 
 const router = express.Router();
 
@@ -13,7 +17,8 @@ const router = express.Router();
 ========================================================= */
 router.post(
     '/login',
-    validate(loginValidation),
+    authLimiter,
+    validate(loginSchema),
     async (req: Request, res: Response) => {
         try {
             const { email, password } = req.body;
@@ -25,7 +30,7 @@ router.post(
             );
 
             if (result.rows.length === 0) {
-                return res.status(401).json({ error: 'Invalid credentials' });
+                return errorResponse(res, 401, { error: 'Invalid credentials', code: 'AUTH_INVALID' });
             }
 
             const user: User = result.rows[0];
@@ -33,7 +38,7 @@ router.post(
             // Verify password
             const isValidPassword = await bcrypt.compare(password, user.password_hash);
             if (!isValidPassword) {
-                return res.status(401).json({ error: 'Invalid credentials' });
+                return errorResponse(res, 401, { error: 'Invalid credentials', code: 'AUTH_INVALID' });
             }
 
             // Update last login
@@ -50,8 +55,8 @@ router.post(
                     role: user.role,
                     schoolId: user.school_id,
                 },
-                config.jwtSecret,
-                { expiresIn: config.jwtExpiry }
+                config.jwtSecret as string,
+                { expiresIn: config.jwtExpiry as any }
             );
 
             // Fetch school (optional)
@@ -67,6 +72,13 @@ router.post(
             // Remove password hash from response
             const { password_hash, ...safeUser } = user;
 
+            // Log successful login
+            logger.info('User logged in', {
+                userId: user.id,
+                role: user.role,
+                schoolId: user.school_id
+            });
+
             return res.json({
                 token,
                 user: {
@@ -75,8 +87,8 @@ router.post(
                 },
             });
         } catch (error) {
-            console.error('Login error:', error);
-            return res.status(500).json({ error: 'Internal server error' });
+            logger.error('Login error', { error: String(error) });
+            return errorResponse(res, 500, { error: 'Internal server error', code: 'SERVER_ERROR' });
         }
     }
 );
@@ -86,7 +98,7 @@ router.post(
 ========================================================= */
 router.post(
     '/register',
-    validate(registerValidation),
+    validate(registerSchema),
     async (req: Request, res: Response) => {
         try {
             const {
@@ -104,7 +116,7 @@ router.post(
             );
 
             if (existingUser.rows.length > 0) {
-                return res.status(400).json({ error: 'User already exists' });
+                return errorResponse(res, 409, { error: 'User already exists', code: 'USER_EXISTS' });
             }
 
             // Hash password
@@ -136,8 +148,8 @@ router.post(
                     role: newUser.role,
                     schoolId: newUser.school_id,
                 },
-                config.jwtSecret,
-                { expiresIn: config.jwtExpiry }
+                config.jwtSecret as string,
+                { expiresIn: config.jwtExpiry as any }
             );
 
             return res.status(201).json({
@@ -146,7 +158,7 @@ router.post(
             });
         } catch (error) {
             console.error('Registration error:', error);
-            return res.status(500).json({ error: 'Internal server error' });
+            return errorResponse(res, 500, { error: 'Internal server error', code: 'SERVER_ERROR' });
         }
     }
 );
@@ -166,7 +178,7 @@ router.get('/verify', async (req: Request, res: Response) => {
     const token = authHeader?.split(' ')[1];
 
     if (!token) {
-        return res.status(401).json({ error: 'No token provided' });
+        return errorResponse(res, 401, { error: 'No token provided', code: 'AUTH_MISSING_TOKEN' });
     }
 
     try {
@@ -180,7 +192,7 @@ router.get('/verify', async (req: Request, res: Response) => {
         );
 
         if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'User not found' });
+            return errorResponse(res, 404, { error: 'User not found', code: 'USER_NOT_FOUND' });
         }
 
         const user = result.rows[0];
@@ -194,14 +206,27 @@ router.get('/verify', async (req: Request, res: Response) => {
             school = schoolResult.rows[0] || null;
         }
 
+        // Generate fresh JWT with latest permissions
+        const newToken = jwt.sign(
+            {
+                userId: user.id,
+                email: user.email,
+                role: user.role,
+                schoolId: user.school_id,
+            },
+            config.jwtSecret as string,
+            { expiresIn: config.jwtExpiry as any }
+        );
+
         return res.json({
+            token: newToken,
             user: {
                 ...user,
                 school,
             },
         });
     } catch (error) {
-        return res.status(403).json({ error: 'Invalid or expired token' });
+        return errorResponse(res, 403, { error: 'Invalid or expired token', code: 'AUTH_TOKEN_INVALID' });
     }
 });
 

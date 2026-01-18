@@ -10,7 +10,7 @@ export const AppHeader: React.FC = () => {
     const handleLogout = async () => {
         if (auth?.logout) {
             await auth.logout();
-            navigate('/login');
+            navigate('/');
         }
     };
 

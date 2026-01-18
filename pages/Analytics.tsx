@@ -12,9 +12,12 @@ import { LineChart, BarChart3, Loader2 } from 'lucide-react';
 export const Analytics: React.FC = () => {
     const { data, loading } = useDashboard();
 
-    if (loading || !data) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-500" /></div>;
+    const schoolMap = React.useMemo(() => {
+        if (!data?.schools) return {};
+        return Object.fromEntries(data.schools.map(s => [s.id, s.name]));
+    }, [data?.schools]);
 
-    const schoolMap = React.useMemo(() => Object.fromEntries(data.schools.map(s => [s.id, s.name])), [data.schools]);
+    if (loading || !data) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-500" /></div>;
 
     return (
         <div className="animate-in fade-in duration-500 space-y-6">
@@ -68,6 +71,7 @@ export const Analytics: React.FC = () => {
                         <GridAnalytics
                             currentData={data.current_data}
                             historicalData={data.historical_data}
+                            hourlyHistorical={data.hourly_historical}
                             schools={data.schools}
                         />
                     </div>

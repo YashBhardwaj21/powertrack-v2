@@ -6,7 +6,7 @@ import { TrendingUp } from 'lucide-react';
 import * as echarts from 'echarts';
 
 interface CumulativeEnergyChartProps {
-    data: { date: string; value: number }[];
+    data: { label: string; value: number | null }[];
 }
 
 export const CumulativeEnergyChart: React.FC<CumulativeEnergyChartProps> = ({ data }) => {
@@ -22,7 +22,7 @@ export const CumulativeEnergyChart: React.FC<CumulativeEnergyChartProps> = ({ da
         );
     }
 
-    const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sortedData = data; // Assuming backend already sorts by hour as implemented
 
     const option = {
         tooltip: {
@@ -30,7 +30,7 @@ export const CumulativeEnergyChart: React.FC<CumulativeEnergyChartProps> = ({ da
             formatter: (params: any) => {
                 const p = params[0];
                 return `<div class="font-bold mb-1">${p.name}</div>
-                        <div class="text-sm">Total: ${formatEnergy(p.value)}</div>`;
+                        <div class="text-sm">Power: ${p.value !== null ? p.value.toFixed(1) + ' kW' : '—'}</div>`;
             }
         },
         grid: {
@@ -42,7 +42,7 @@ export const CumulativeEnergyChart: React.FC<CumulativeEnergyChartProps> = ({ da
         xAxis: {
             type: 'category',
             boundaryGap: false,
-            data: sortedData.map(d => new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+            data: sortedData.map(d => d.label),
             axisLabel: { color: '#64748b' },
             axisLine: { show: false },
             axisTick: { show: false }

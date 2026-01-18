@@ -1,38 +1,21 @@
-import { body, validationResult, ValidationChain } from 'express-validator';
 import { Request, Response, NextFunction } from 'express';
+import { ZodSchema, ZodError } from 'zod';
 
-export const validate = (validations: ValidationChain[]) => {
-    return async (req: Request, res: Response, next: NextFunction) => {
-        await Promise.all(validations.map(validation => validation.run(req)));
-
-        const errors = validationResult(req);
-        if (errors.isEmpty()) {
-            return next();
+export const validate = (schema: ZodSchema) =>
+    async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            // Parse body, params, query? Usually just body for POST.
+            // For rigorousness, we could validate all, but req.body is the standard for 'validate(schema)'.
+            // Note: parseAsync allows for async refinements if needed.
+            req.body = await schema.parseAsync(req.body);
+            next();
+        } catch (error) {
+            if (error instanceof ZodError) {
+                return res.status(400).json({
+                    error: 'Validation failed',
+                    details: error.format()
+                });
+            }
+            return res.status(500).json({ error: 'Internal validation error' });
         }
-
-        res.status(400).json({ errors: errors.array() });
     };
-};
-
-// Validation rules for different endpoints
-export const loginValidation = [
-    body('email').isEmail().withMessage('Valid email required'),
-    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-];
-
-export const registerValidation = [
-    body('email').isEmail().withMessage('Valid email required'),
-    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-    body('full_name').optional().isString(),
-    body('role').optional().isIn(['admin', 'school_admin', 'viewer']),
-];
-
-export const telemetryValidation = [
-    body('power_w').isFloat({ min: 0, max: 100000 }).withMessage('Invalid power value'),
-    body('voltage').isFloat({ min: 0, max: 1000 }).withMessage('Invalid voltage value'),
-    body('current_a').isFloat({ min: 0, max: 1000 }).withMessage('Invalid current value'),
-    body('daily_kwh').optional().isFloat({ min: 0 }),
-    body('total_kwh').optional().isFloat({ min: 0 }),
-    body('irradiance_wm2').optional().isFloat({ min: 0 }),
-    body('temp_c').optional().isFloat({ min: -50, max: 150 }),
-];

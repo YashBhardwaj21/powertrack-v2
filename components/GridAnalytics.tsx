@@ -6,27 +6,36 @@ import { EmptyState } from './ui/EmptyState';
 
 interface GridAnalyticsProps {
     currentData: Telemetry[];
-    historicalData: HistoricalData[];
+    historicalData: HistoricalData[]; // Daily data (legacy name)
+    hourlyHistorical?: Array<{ hour: string; avg_power: number; energy: number }>; // Hourly data (correct source)
     schools: School[];
 }
 
-export const GridAnalytics: React.FC<GridAnalyticsProps> = ({ currentData, historicalData, schools }) => {
+export const GridAnalytics: React.FC<GridAnalyticsProps> = ({ currentData, historicalData, hourlyHistorical, schools }) => {
     // Aggregated current snapshot
-    const totalSolar = currentData.reduce((acc, curr) => acc + (curr.ac_power_kw || 0), 0);
-    const totalLoad = currentData.reduce((acc, curr) => acc + (curr.load_kw || 0), 0);
-    const totalExport = currentData.reduce((acc, curr) => acc + (curr.grid_export_kw || 0), 0);
-    const totalImport = currentData.reduce((acc, curr) => acc + (curr.grid_import_kw || 0), 0);
+    const totalSolar = currentData.reduce((acc, curr) => acc + (Number(curr.ac_power_kw) || 0), 0);
+    const totalLoad = currentData.reduce((acc, curr) => acc + (Number(curr.load_kw) || 0), 0);
+    const totalExport = currentData.reduce((acc, curr) => acc + (Number(curr.grid_export_kw) || 0), 0);
+    const totalImport = currentData.reduce((acc, curr) => acc + (Number(curr.grid_import_kw) || 0), 0);
 
     // Filter historical data for the last 24 intervals to show a real profile
-    // Note: In an enterprise app, we'd fetch specific hourly consumption from the backend.
-    // For now, we use the historical_data array if it has valid Load/Solar records.
-    const hasHistoricalProfile = historicalData.length > 0;
-    const curveData = historicalData.slice(-24).map(h => ({
-        time: h.date.split('T')[1]?.substring(0, 5) || h.date,
-        Solar: Number(h.total_energy_kwh.toFixed(1)),
-        Load: Number((h.total_energy_kwh * 1.2).toFixed(1)), // Load is usually a factor of solar for these schools
-        Grid: Number((h.total_energy_kwh * 0.2).toFixed(1))
-    }));
+    // Correctly prefer hourlyHistorical for 24h charts.
+    const sourceData = hourlyHistorical || [];
+    // Fallback to historicalData only if we have reason to believe it's hourly, but we know it's Daily.
+    // So strictly prefer hourlyHistorical.
+
+    const hasHistoricalProfile = sourceData.length > 0;
+
+    const curveData = sourceData.map(h => {
+        // h is { hour, avg_power, energy }
+        const energy = Number(h.energy) || 0;
+        return {
+            time: new Date(h.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            Solar: Number(energy.toFixed(1)),
+            Load: Number((energy * 1.2).toFixed(1)), // Load is usually a factor of solar for these schools
+            Grid: Number((energy * 0.2).toFixed(1))
+        };
+    });
 
     return (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">

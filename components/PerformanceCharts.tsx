@@ -8,10 +8,11 @@ import { SpecificYieldChart } from './charts/SpecificYieldChart';
 interface PerformanceChartsProps {
     currentData: Telemetry[];
     historicalData: HistoricalData[];
+    hourlyHistorical?: Array<{ hour: string; avg_power: number; energy: number }>; // New prop
     schools: School[];
 }
 
-export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({ currentData, historicalData, schools }) => {
+export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({ currentData, historicalData, hourlyHistorical, schools }) => {
 
     // Data Transformation
     const { trendData, energyData } = useMemo(() => {
@@ -32,14 +33,17 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
             };
         });
 
-        // 3. Process Historical Data
-        const trendData = historicalData.map(h => ({
-            date: h.date,
-            value: h.total_energy_kwh
+        // 3. Process Historical Data (Last 24h Trend)
+        // Prefer new 'hourlyHistorical' if available, otherwise fall back to deprecated 'historicalData'
+        const sourceData = hourlyHistorical || historicalData;
+
+        const trendData = sourceData.map((h: any) => ({
+            label: new Date(h.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            value: Number(h.avg_power) || 0
         }));
 
         return { trendData, energyData };
-    }, [currentData, historicalData, schools]);
+    }, [currentData, historicalData, hourlyHistorical, schools]);
 
     return (
         <div className="space-y-8 mb-8">

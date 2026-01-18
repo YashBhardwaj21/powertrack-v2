@@ -4,17 +4,45 @@ import { Link } from 'react-router-dom';
 import { fetchPublicLeaderboard } from '../services/dataService';
 import { AppHeader } from '../components/AppHeader';
 import { AppFooter } from '../components/AppFooter';
-import { EmptyState } from '../components/ui/EmptyState';
+
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3002';
 
 export const PublicLobby: React.FC = () => {
     const [leaderboard, setLeaderboard] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
+    const loadData = async () => {
+        const data = await fetchPublicLeaderboard();
+        setLeaderboard(data);
+        setLoading(false);
+    };
+
     useEffect(() => {
-        fetchPublicLeaderboard().then(data => {
-            setLeaderboard(data);
-            setLoading(false);
-        });
+        loadData();
+
+        // Live Sync for Public Lobby
+        const ws = new WebSocket(WS_URL);
+
+        ws.onopen = () => {
+            console.log('✅ Public Live Sync Connected');
+            ws.send(JSON.stringify({ type: 'subscribe', schoolId: 'all' }));
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'telemetry_update') {
+                    // Re-fetch leaderboard on any update
+                    loadData();
+                }
+            } catch (e) {
+                console.error('WS Parse Error', e);
+            }
+        };
+
+        return () => {
+            ws.close();
+        };
     }, []);
 
     // Calculate dynamic stats from all schools in leaderboard

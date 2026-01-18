@@ -22,7 +22,8 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.11.3",
-    "ws": "^8.16.0"
+    "ws": "^8.16.0",
+    "zod": "^4.3.5"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",

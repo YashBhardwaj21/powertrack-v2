@@ -1,10 +1,5 @@
-# ============================
-# API KEYS (Multiple Schools)
-# ============================
+
 $API_KEYS = @(
-    "pt_live_fcb220881cafd66665ddf79f72a16755ec225115a90e844f3d0402a24f45afef",
-    "pt_live_c12a86a75a476da6d211b70c5045642b872165093de8dab9ebe652fdb7bcd6b5",
-    "pt_live_49f6684c0c1b21ab79770c38d330e66a3a81f46cff867c918a6b9daba7dd5876",
     "pt_live_2b13ffd6fcfe5cc9a53a94d29e611a87efe6fe49ceb4bd90b8da1a414a511f9d"
 )
 
@@ -14,7 +9,7 @@ $URL = "http://localhost:3001/api/v1/telemetry"
 $baseSolarKw = 3.5
 $baseLoadKw = 1.6
 
-Write-Host "Starting Simulation for defined schools..." -ForegroundColor Cyan
+Write-Host "Starting EXTRA Simulation for new school..." -ForegroundColor Magenta
 
 while ($true) {
 
@@ -53,29 +48,10 @@ while ($true) {
             ts                = [int][DateTimeOffset]::Now.ToUnixTimeSeconds()
         } | ConvertTo-Json -Compress
 
-        # ---- Dynamic Auth Method Selection
         $headers = @{ "Content-Type" = "application/json" }
-        $methodName = "Unknown"
-
-        if ($i -eq 0) {
-            # Method 1: Standard Custom Header (Original)
-            $headers["X-API-KEY"] = $API_KEY
-            $methodName = "HEADER X-API-KEY"
-        }
-        elseif ($i -eq 1) {
-            # Method 2: Bearer Token (Modern Market Loggers)
-            $headers["Authorization"] = "Bearer $API_KEY"
-            $methodName = "AUTH BEARER"
-        }
-        else {
-            # Method 3: Basic Auth (Legacy Market Loggers)
-            # Simulating "Username: api, Password: [API_KEY]"
-            $plainAuth = "api:$API_KEY"
-            $authBytes = [System.Text.Encoding]::UTF8.GetBytes($plainAuth)
-            $base64Auth = [Convert]::ToBase64String($authBytes)
-            $headers["Authorization"] = "Basic $base64Auth"
-            $methodName = "AUTH BASIC"
-        }
+        # Treat as X-API-KEY for this extra one
+        $headers["X-API-KEY"] = $API_KEY
+        $methodName = "HEADER X-API-KEY (EXTRA)"
 
         try {
             $response = Invoke-RestMethod `
@@ -85,7 +61,6 @@ while ($true) {
                 -Body $body `
                 -ErrorAction Stop
 
-            # Print success with specific School ID to verify isolation
             $shortKey = $API_KEY.Substring(8, 8) + "..."
             Write-Host "✅ [$methodName] Key: $shortKey | School: $($response.school_id) | Solar: $solar_kw kW" -ForegroundColor Green
         }

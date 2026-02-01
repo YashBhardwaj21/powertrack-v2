@@ -82,7 +82,7 @@ const startServer = async () => {
         });
 
         // Start WebSocket server
-        initWebSocketServer(config.wsPort);
+        initWebSocketServer();
 
     } catch (error) {
         console.error('❌ Failed to start server:', error);

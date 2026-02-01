@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { query, getClient } from '../db/index.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { errorResponse } from '../utils/errorResponse.js';
+import { broadcastSchoolCreated } from '../websocket/index.js';
 
 import { transformSchoolRow } from '../utils/transformers.js';
 
@@ -135,6 +136,10 @@ router.post(
 
             school.api_key = rawKey;
 
+            school.api_key = rawKey;
+
+            // 📣 BROADCAST EVENT
+            broadcastSchoolCreated(school);
 
             // AUTO-ASSIGN USER TO SCHOOL IF NOT ADMIN
             let updatedUser = { ...requestingUser };

@@ -1,75 +1,169 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
+import * as echarts from 'echarts';
 import { formatEnergy } from '../../utils/formatters';
 import { EmptyState } from '../ui/EmptyState';
 import { BarChart3 } from 'lucide-react';
-import * as echarts from 'echarts'; // For gradient
 
 interface DailyEnergyChartProps {
-    data: { name: string; value: number; schoolId: string }[];
+    // Data shape: { hour: string (ISO), avg_power: number, energy: number ... }
+    data: Array<{ hour: string; avg_power: number; energy: number }>;
 }
 
 export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data }) => {
-    if (!data || data.length === 0 || data.every(d => d.value === 0)) {
+    // 1. Data Processing: Smart Date Selection
+    const { chartCategories, chartValues, displayedDate } = useMemo(() => {
+        // Initialize 24-hour buckets
+        const hours = Array.from({ length: 24 }, (_, i) => i);
+        const categories = hours.map(h => `${h.toString().padStart(2, '0')}:00`);
+
+        if (!data || data.length === 0) {
+            return {
+                chartCategories: categories,
+                chartValues: new Array(24).fill(0),
+                displayedDate: new Date()
+            };
+        }
+
+        // Group data by Date String (YYYY-MM-DD local)
+        const dataByDate = new Map<string, typeof data>();
+        data.forEach(p => {
+            const pDate = new Date(p.hour);
+            const dateKey = pDate.toLocaleDateString();
+            if (!dataByDate.has(dateKey)) dataByDate.set(dateKey, []);
+            dataByDate.get(dateKey)?.push(p);
+        });
+
+        // Determine target date
+        const now = new Date();
+        const todayKey = now.toLocaleDateString();
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        const yesterdayKey = yesterday.toLocaleDateString();
+
+        let targetKey = todayKey;
+        let targetData = dataByDate.get(todayKey) || [];
+
+        // Calculate total energy for Today
+        const totalToday = targetData.reduce((sum, p) => sum + (Number(p.avg_power) || 0), 0);
+
+        // If Today is practically empty (e.g. just after midnight) AND Yesterday has data, show Yesterday
+        if (totalToday < 0.1 && dataByDate.has(yesterdayKey)) {
+            targetKey = yesterdayKey;
+            targetData = dataByDate.get(yesterdayKey)!;
+        }
+        // Fallback: If neither, pick the date with most data? Or stick to Today (empty).
+        // Let's stick to the selected logic (Today -> Yesterday -> Today Empty)
+
+        const values = new Array(24).fill(0);
+        const targetDateObj = new Date(targetData.length > 0 ? targetData[0].hour : now);
+
+        targetData.forEach(p => {
+            const pDate = new Date(p.hour);
+            const hour = pDate.getHours();
+            if (hour >= 0 && hour < 24) {
+                values[hour] += Number(p.avg_power) || 0;
+            }
+        });
+
+        return { chartCategories: categories, chartValues: values, displayedDate: targetDateObj };
+    }, [data]);
+
+    // Check if chart is completely empty (all zeros) but we return full grid anyway
+    const isEmpty = chartValues.every(v => v === 0);
+
+    // If empty, we still show the grid (00:00 to 23:00) so the user knows it's "Today"
+    // But if we want an explicit empty state when NO data has arrived yet (e.g. 1 AM):
+    // Actually, showing an empty grid is better feedback than "Waiting for Data" text,
+    // because it confirms "Yes, we are monitoring today, but 0 energy so far".
+    // However, if the array is totally empty/null, that's different.
+    // The buckets ensure we always have 24 bars.
+
+    // We only show EmptyState if data prop was null/empty entirely? 
+    // No, strictly adhering to "Today" view means empty grid is valid at midnight.
+    // Check if chart is completely empty (all zeros) but we return full grid anyway
+
+    if (!data || data.length === 0) {
+        // Fallback or empty state if ABSOLUTELY no data fetched
+        // However, we want to show empty grid if fetch succeeded but result was empty?
+        // Let's stick to showing the component if data array exists (even if empty) 
+        // to show "00:00 ... 23:00" empty chart.
+        // But the previous condition was strict on null data.
         return (
-            <div className="h-[400px] flex items-center justify-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+            <div className="h-[320px] flex items-center justify-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
                 <EmptyState
                     icon={BarChart3}
-                    title="No Energy Data Available"
-                    description="There is no energy production data to display for the selected period."
+                    title="Waiting for Production"
+                    description="Energy generated today will appear here as hourly bars."
                 />
             </div>
         );
     }
 
-    // Sort logic should happen in parent or here
-    const sortedData = [...data].sort((a, b) => a.value - b.value);
-
     const option = {
+        grid: {
+            top: 30,
+            right: 20,
+            bottom: 20,
+            left: 20,
+            containLabel: true
+        },
         tooltip: {
             trigger: 'axis',
             axisPointer: { type: 'shadow' },
             formatter: (params: any) => {
                 const p = params[0];
                 return `<div class="font-bold mb-1">${p.name}</div>
-                        <div class="text-sm">Energy: ${formatEnergy(p.value)}</div>`;
+                        <div class="text-sm">Energy: <span class="font-bold text-blue-600">${formatEnergy(p.value)}</span></div>`;
             }
         },
-        grid: {
-            left: '3%',
-            right: '4%',
-            bottom: '3%',
-            containLabel: true
-        },
         xAxis: {
-            type: 'value',
-            splitLine: {
-                lineStyle: { type: 'dashed', color: '#f1f5f9' }
+            type: 'category',
+            data: chartCategories,
+            axisLabel: {
+                color: '#94a3b8',
+                interval: 3, // 00, 04, 08, 12, 16, 20
+                hideOverlap: true
             },
-            axisLabel: { color: '#64748b' }
+            axisLine: { show: false },
+            axisTick: { show: false },
         },
         yAxis: {
-            type: 'category',
-            data: sortedData.map(d => d.name),
-            axisLabel: { color: '#64748b', width: 100, overflow: 'truncate' },
-            axisLine: { show: false },
-            axisTick: { show: false }
+            type: 'value',
+            position: 'right',
+            splitLine: {
+                lineStyle: {
+                    type: 'dashed',
+                    color: '#f1f5f9'
+                }
+            },
+            axisLabel: {
+                color: '#94a3b8',
+                formatter: (val: number) => `${val.toFixed(1)} kWh`
+            }
         },
         series: [
             {
-                name: 'Daily Energy',
+                name: 'Hourly Energy',
                 type: 'bar',
-                data: sortedData.map(d => ({
-                    value: d.value,
-                    itemStyle: {
-                        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [{ offset: 0, color: "#3b82f6" }, { offset: 1, color: "#2563eb" }])
-                    }
-                })),
-                barWidth: '60%',
-                itemStyle: { borderRadius: [0, 4, 4, 0] }
+                data: chartValues,
+                barWidth: '60%', // Good width for hourly bars
+                barMaxWidth: 40,
+                itemStyle: {
+                    borderRadius: [4, 4, 0, 0],
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: '#3b82f6' }, // Blue-500
+                        { offset: 1, color: '#60a5fa' }  // Blue-400
+                    ])
+                },
+                showBackground: true,
+                backgroundStyle: {
+                    color: 'rgba(241, 245, 249, 0.5)',
+                    borderRadius: [4, 4, 0, 0]
+                }
             }
         ]
     };
 
-    return <ReactECharts option={option} style={{ height: '400px', width: '100%' }} />;
+    return <ReactECharts option={option} style={{ height: '320px', width: '100%' }} />;
 };

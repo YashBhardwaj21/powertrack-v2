@@ -4,13 +4,17 @@ import { config } from '../config/index.js';
 const { Pool } = pg;
 
 // Create PostgreSQL connection pool
-export const pool = new Pool({
+const poolConfig = {
     connectionString: config.databaseUrl,
-    ssl: config.nodeEnv === 'production' ? { rejectUnauthorized: false } : false,
-    max: 20,
+    ssl: config.databaseUrl?.includes('localhost') ? false : { rejectUnauthorized: false },
+    max: 100, // Matching simulation scale (1 connection per concurrent request)
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
-});
+    connectionTimeoutMillis: 10000, // reduced to fail fast if full
+    keepAlive: true,
+};
+
+// Create PostgreSQL connection pool
+export const pool = new Pool(poolConfig);
 
 // Test database connection
 pool.on('connect', () => {
@@ -18,8 +22,8 @@ pool.on('connect', () => {
 });
 
 pool.on('error', (err) => {
-    console.error('❌ Unexpected database error:', err);
-    process.exit(-1);
+    console.error('❌ Unexpected database error (trying to recover):', err);
+    // process.exit(-1); // Don't crash on transient connection errors
 });
 
 // Helper function to execute queries

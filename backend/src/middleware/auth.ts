@@ -65,7 +65,29 @@ import { query } from '../db/index.js';
 import crypto from 'crypto';
 
 export const authenticateApiKey = async (req: Request, res: Response, next: NextFunction) => {
-    const apiKey = req.headers['x-api-key'] as string;
+    let apiKey = req.headers['x-api-key'] as string;
+
+    // Support for Market Loggers (Bearer Token or Basic Auth)
+    // This allows using the "Username" or "Password" field in device settings
+    if (!apiKey && req.headers['authorization']) {
+        const auth = req.headers['authorization'];
+        if (auth.startsWith('Bearer ')) {
+            apiKey = auth.substring(7).trim();
+        } else if (auth.startsWith('Basic ')) {
+            try {
+                // Decode "user:pass"
+                const creds = Buffer.from(auth.substring(6).trim(), 'base64').toString('utf-8');
+                const [user, pass] = creds.split(':');
+
+                // Smart detection: Check which field holds the PowerTrack key
+                if (user?.startsWith('pt_live_')) apiKey = user;
+                else if (pass?.startsWith('pt_live_')) apiKey = pass;
+                else apiKey = user; // Fallback
+            } catch (err) {
+                // Formatting error, ignore
+            }
+        }
+    }
 
     // Gate 1: API Key Presence
     if (!apiKey) {
@@ -175,7 +197,7 @@ export const authenticateApiKey = async (req: Request, res: Response, next: Next
             field_map: school.field_map || {}
         };
 
-        console.log(`[Auth] ✅ Authenticated: ${school.name} (${school.id}) with profile ${school.profile_name}`);
+        console.log(`[Auth] ✅ Authenticated School: "${school.name}" (ID: ${school.id}) | Profile: ${school.profile_name}`);
         next();
     } catch (error) {
         console.error('[Auth] Unexpected error during API key authentication:', error);

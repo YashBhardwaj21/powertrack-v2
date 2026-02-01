@@ -4,9 +4,19 @@
  */
 
 // Format Currency: Rp 1,500,000
-export const formatCurrency = (value: number | undefined | null): string => {
-    if (value === undefined || value === null) return 'Waiting for data';
-    if (value === 0) return 'Rp 0'; // True zero is valid for cost sometimes, but usually means no data if context implies.
+// Helper to safely convert input to number
+const safeNumber = (value: any): number | null => {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'number') return value;
+    const parsed = Number(value);
+    return isNaN(parsed) ? null : parsed;
+};
+
+// Format Currency: Rp 1,500,000
+export const formatCurrency = (value: number | string | undefined | null): string => {
+    const num = safeNumber(value);
+    if (num === null) return 'Waiting for data';
+    if (num === 0) return 'Rp 0';
 
     // For large numbers, drop decimals
     const options: Intl.NumberFormatOptions = {
@@ -16,39 +26,43 @@ export const formatCurrency = (value: number | undefined | null): string => {
         maximumFractionDigits: 0,
     };
 
-    return new Intl.NumberFormat('id-ID', options).format(value).replace('Rp', 'Rp ');
+    return new Intl.NumberFormat('id-ID', options).format(num).replace('Rp', 'Rp ');
 };
 
 // Format Power: 12.5 kW
-export const formatPower = (value: number | undefined | null): string => {
-    if (value === undefined || value === null) return '—';
-    if (value === 0) return '0.0 kW'; // Distinguish true zero generation (night) vs null
-    return `${value.toFixed(1)} kW`;
+export const formatPower = (value: number | string | undefined | null): string => {
+    const num = safeNumber(value);
+    if (num === null) return '—';
+    if (num === 0) return '0.00 kW';
+    return `${num.toFixed(2)} kW`;
 };
 
 // Format Energy: 123.45 kWh
-export const formatEnergy = (value: number | undefined | null): string => {
-    if (value === undefined || value === null) return '—';
-    if (value === 0) return '0.00 kWh';
-    return `${value.toFixed(2)} kWh`;
+export const formatEnergy = (value: number | string | undefined | null): string => {
+    const num = safeNumber(value);
+    if (num === null) return '—';
+    if (num === 0) return '0.00 kWh';
+    return `${num.toFixed(2)} kWh`;
 };
 
 // Format CO2: 1,234 kg
-export const formatCO2 = (value: number | undefined | null): string => {
-    if (value === undefined || value === null) return '—';
-    if (value === 0) return '0 kg';
-    return `${Math.round(value).toLocaleString()} kg`;
+export const formatCO2 = (value: number | string | undefined | null): string => {
+    const num = safeNumber(value);
+    if (num === null) return '—';
+    if (num === 0) return '0 kg';
+    return `${num.toFixed(2)} kg`;
 };
 
 // Format Percentage: 12.5%
-export const formatPercentage = (value: number | undefined | null): string => {
-    if (value === undefined || value === null) return '—';
-    return `${value.toFixed(1)}%`;
+export const formatPercentage = (value: number | string | undefined | null): string => {
+    const num = safeNumber(value);
+    if (num === null) return '—';
+    return `${num.toFixed(1)}%`;
 };
 
 // Helper to determine if a value represents "Empty/Waiting" state
-export const isWaitingForData = (value: number | undefined | null): boolean => {
-    return value === undefined || value === null;
+export const isWaitingForData = (value: number | string | undefined | null): boolean => {
+    return safeNumber(value) === null;
 };
 
 // Format relative time (e.g. "Just now", "5 mins ago") or date

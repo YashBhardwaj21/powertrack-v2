@@ -31,7 +31,7 @@ export const StorageSystemStatus: React.FC<StorageSystemStatusProps> = ({ stats 
                     </span>
                 </div>
             </div>
-            
+
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {/* Metric 1: Total Storage */}
                 <div className="space-y-2">
@@ -42,7 +42,7 @@ export const StorageSystemStatus: React.FC<StorageSystemStatusProps> = ({ stats 
                         {stats.storage_usage_mb.toFixed(1)} <span className="text-sm font-normal text-slate-500">MB</span>
                     </div>
                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-indigo-500 h-full w-1/4"></div>
+                        <div className="bg-indigo-500 h-full w-1/4" style={{ width: `${Math.min(100, (stats.storage_usage_mb / 1000) * 100)}%` }}></div>
                     </div>
                     <p className="text-xs text-slate-400">Compression Ratio: {stats.compression_ratio}x</p>
                 </div>
@@ -55,7 +55,7 @@ export const StorageSystemStatus: React.FC<StorageSystemStatusProps> = ({ stats 
                     <div className="text-2xl font-bold text-slate-800">
                         {formatNumber(stats.total_points_stored)}
                     </div>
-                     <div className="flex gap-1 h-1.5 w-full">
+                    <div className="flex gap-1 h-1.5 w-full">
                         <div className="bg-blue-500 h-full rounded-l-full w-3/4" title="Raw Data"></div>
                         <div className="bg-indigo-300 h-full rounded-r-full w-1/4" title="Aggregated Data"></div>
                     </div>
@@ -79,7 +79,7 @@ export const StorageSystemStatus: React.FC<StorageSystemStatusProps> = ({ stats 
                     <div className="text-sm text-slate-700">{stats.retention_policies.aggregated}</div>
                     <div className="flex justify-between items-center text-[10px] text-slate-400">
                         <span>Last Rollup Job:</span>
-                        <span className="font-mono">{stats.last_rollup_job.split('T')[1].substring(0,5)}</span>
+                        <span className="font-mono">{stats.last_rollup_job.split('T')[1].substring(0, 5)}</span>
                     </div>
                 </div>
             </div>

@@ -15,18 +15,20 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ data }) => {
 
     // Safe access to data properties
     const currentData = data?.current_data || [];
+    const leaderboardStats = data?.leaderboard_stats || [];
     const metadata = data?.metadata || { electricity_rate_idr: 0, carbon_intensity_kg_per_kwh: 0 };
 
     // Double safety for null vs undefined
     const safeMetadata = metadata || { electricity_rate_idr: 0, carbon_intensity_kg_per_kwh: 0 };
 
     const totalPower = currentData.reduce((sum, d) => sum + (Number(d.ac_power_kw) || 0), 0);
-    const totalEnergy = currentData.reduce((sum, d) => sum + (Number(d.daily_energy_kwh) || 0), 0);
+    // Use leaderboard_stats (Lifetime) instead of current_data (Daily)
+    const totalEnergy = leaderboardStats.reduce((sum, s) => sum + (Number(s.total_energy_kwh) || 0), 0);
     const totalSavings = totalEnergy * (safeMetadata.electricity_rate_idr || 0);
     const totalCO2 = totalEnergy * (safeMetadata.carbon_intensity_kg_per_kwh || 0);
 
     // Determine global status for the row
-    const hasData = currentData.length > 0 && totalPower > 0;
+    const hasData = (currentData.length > 0 && totalPower > 0) || leaderboardStats.length > 0;
 
     const cards = [
         {
@@ -38,7 +40,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ data }) => {
             borderColor: "border-amber-100"
         },
         {
-            label: t.daily_energy,
+            label: 'Lifetime Energy', // Updated to reflect lifetime stats
             value: formatEnergy(totalEnergy),
             icon: Activity,
             color: "text-blue-600",

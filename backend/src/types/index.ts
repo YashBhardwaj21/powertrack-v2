@@ -107,13 +107,14 @@ export interface DashboardSummary {
         net_grid_flow_kw: number;
         sharing_potential_idr: number;
     };
+    leaderboard_stats: LeaderboardEntry[]; // Added for consistency with Public Lobby
     metadata: {
         electricity_rate_idr: number;
         carbon_intensity_kg_per_kwh: number;
     };
     // Standardized Historical Data
     daily_historical: Array<{ date: string; total_energy_kwh: number }>;
-    hourly_historical: Array<{ hour: string; avg_power: number; energy: number }>;
+    hourly_historical: Array<{ hour: string; avg_power: number; energy: number; avg_load: number; avg_import: number; avg_export: number }>;
 
     // @deprecated Use daily_historical or hourly_historical
     historical_data: Array<{

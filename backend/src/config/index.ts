@@ -25,7 +25,7 @@ export const config = {
 
     // Rate Limiting
     rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
-    rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
+    rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000', 10),
 
     // WebSocket
     wsPort: parseInt(process.env.WS_PORT || '3002', 10),

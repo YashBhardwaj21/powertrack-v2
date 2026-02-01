@@ -53,11 +53,11 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}, retries = 3
     }
 };
 
-export const fetchDashboardData = async (schoolId?: string): Promise<DashboardData> => {
+export const fetchDashboardData = async (schoolId?: string, granularity: '1h' | '15min' = '1h'): Promise<DashboardData> => {
     const timestamp = new Date().getTime();
-    const url = schoolId
-        ? `${API_BASE}/dashboard/summary?school_id=${schoolId}&_t=${timestamp}`
-        : `${API_BASE}/dashboard/summary?_t=${timestamp}`;
+    let url = `${API_BASE}/dashboard/summary?_t=${timestamp}`;
+    if (schoolId) url += `&school_id=${schoolId}`;
+    if (granularity === '15min') url += `&granularity=15min`;
 
     const response = await fetchWithAuth(url);
 
@@ -80,18 +80,32 @@ export const fetchDashboardData = async (schoolId?: string): Promise<DashboardDa
     return await response.json();
 };
 
-export const fetchPublicLeaderboard = async (): Promise<any[]> => {
+export const fetchPublicLeaderboard = async (): Promise<{ leaderboard: any[], metadata: any } | null> => {
     try {
         const response = await fetch(`${API_BASE}/dashboard/leaderboard`);
 
         if (!response.ok) {
             console.error('Failed to fetch leaderboard');
-            return [];
+            return null;
         }
 
         return await response.json();
     } catch (error) {
         console.error('Leaderboard fetch error:', error);
+        return null;
+    }
+};
+
+export const fetchPublicHistory = async (): Promise<any[]> => {
+    try {
+        let url = `${API_BASE}/dashboard/public-metrics?granularity=15min`;
+        // No longer filtering by school_id for public aggregate view
+
+        const response = await fetch(url);
+        if (!response.ok) return [];
+        return await response.json();
+    } catch (error) {
+        console.error('Public history fetch error:', error);
         return [];
     }
 };
@@ -158,7 +172,12 @@ let ws: WebSocket | null = null;
 
 export const subscribeToTelemetry = (
     schoolId: string | null,
-    onData: (data: Telemetry[], alerts: Alert[], community: CommunityStats) => void
+    onData: (
+        data: Telemetry[],
+        alerts: Alert[],
+        community: CommunityStats,
+        hourlyHistorical: Array<{ hour: string; avg_power: number; energy: number }>
+    ) => void
 ) => {
     // Close existing connection if any
     if (ws) {
@@ -188,7 +207,8 @@ export const subscribeToTelemetry = (
                 onData(
                     dashboardData.current_data,
                     dashboardData.alerts,
-                    dashboardData.community_stats
+                    dashboardData.community_stats,
+                    dashboardData.hourly_historical
                 );
             }
         } catch (error) {
@@ -231,7 +251,12 @@ export const subscribeToTelemetry = (
                 const message = JSON.parse(event.data);
                 if (message.type === 'telemetry_update' || message.type === 'alert') {
                     const dashboardData = await fetchDashboardData(schoolId || undefined);
-                    onData(dashboardData.current_data, dashboardData.alerts, dashboardData.community_stats);
+                    onData(
+                        dashboardData.current_data,
+                        dashboardData.alerts,
+                        dashboardData.community_stats,
+                        dashboardData.hourly_historical
+                    );
                 }
             } catch (error) {
                 console.error('WebSocket message error:', error);

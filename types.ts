@@ -29,7 +29,9 @@ export interface EnergyLog {
 }
 
 export interface PublicLeaderboardEntry {
+  school_id: string; // Added to support filtering
   school_name: string;
+  district: string; // Added for map visualization
   total_energy_kwh: number;
   co2_reduced_kg: number;
   rank: number;
@@ -139,9 +141,10 @@ export interface DashboardData {
   metadata: SchoolMetadata;
   historical_data: HistoricalData[]; // Deprecated
   daily_historical: Array<{ date: string; total_energy_kwh: number }>;
-  hourly_historical: Array<{ hour: string; avg_power: number; energy: number }>;
+  hourly_historical: Array<{ hour: string; avg_power: number; energy: number; avg_load: number; avg_import: number; avg_export: number }>;
   financial_stats: FinancialStats;
   storage_stats: StorageStats;
+  leaderboard_stats: PublicLeaderboardEntry[]; // Added
   model_metrics: ModelMetrics;
   needs_school_assignment?: boolean;
 }

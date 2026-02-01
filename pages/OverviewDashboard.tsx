@@ -7,6 +7,7 @@ import { SolarMap } from '../components/SolarMap';
 import { Leaderboard } from '../components/Leaderboard';
 import { DeviceWizard } from '../components/DeviceWizard';
 import { Activity, Loader2, Building2 } from 'lucide-react';
+import { SchoolDashboard } from '../components/SchoolDashboard';
 
 import { formatLastUpdated } from '../utils/formatters';
 
@@ -202,7 +203,12 @@ export const OverviewDashboard: React.FC = () => {
                             Global Leaderboard
                         </h3>
                         <div className="h-[480px] bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-                            <Leaderboard schools={data.schools} currentData={data.current_data} metadata={data.metadata} />
+                            <Leaderboard
+                                schools={data.schools}
+                                currentData={data.current_data}
+                                leaderboardStats={data.leaderboard_stats}
+                                metadata={data.metadata}
+                            />
                         </div>
                     </div>
                 </div>
@@ -211,14 +217,5 @@ export const OverviewDashboard: React.FC = () => {
     }
 
     // School User View
-    return (
-        <div className="space-y-6 animate-in fade-in duration-500">
-            <div>
-                <h1 className="text-2xl font-bold text-slate-900">School Overview</h1>
-                <p className="text-slate-500">Real-time telemetry and device status</p>
-            </div>
-            {/* Reuse ControlRoom stats logic for now */}
-            <ControlRoom />
-        </div>
-    );
+    return <SchoolDashboard />;
 };

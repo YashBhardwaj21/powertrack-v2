@@ -11,9 +11,24 @@ export const authLimiter = rateLimit({
 });
 
 export const apiLimiter = rateLimit({
-    windowMs: config.rateLimitWindowMs,
-    limit: config.rateLimitMaxRequests,
-    message: 'Too many requests from this IP, please try again later',
+    windowMs: 60 * 1000, // 1 minute
+    limit: 1000, // Limit per key
+    keyGenerator: (req) => {
+        // 1. Try X-API-KEY header
+        const headerKey = req.headers['x-api-key'] as string;
+        if (headerKey) return headerKey;
+
+        // 2. Try Authorization header (Bearer or Basic)
+        const auth = req.headers['authorization'];
+        if (auth) {
+            if (auth.startsWith('Bearer ')) return auth.substring(7);
+            if (auth.startsWith('Basic ')) return auth.substring(6);
+        }
+
+        // 3. Fallback to IP for unauthenticated requests
+        return req.ip || 'unknown_ip';
+    },
+    message: 'Too many requests from this IP/Key, please try again later',
     standardHeaders: true,
     legacyHeaders: false,
 });

@@ -112,4 +112,18 @@ export const broadcastAlert = (alertData: any) => {
     });
 };
 
+export const broadcastSchoolCreated = (schoolData: any) => {
+    const message = JSON.stringify({
+        type: 'school_created',
+        data: schoolData,
+        timestamp: new Date().toISOString(),
+    });
+
+    clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(message);
+        }
+    });
+};
+
 export { wss };

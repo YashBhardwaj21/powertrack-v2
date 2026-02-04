@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { query } from '../db/index.js';
 import { config } from '../config/index.js';
 import { validate } from '../middleware/validation.js';
@@ -169,6 +170,78 @@ router.post(
 router.post('/logout', (_req: Request, res: Response) => {
     return res.json({ message: 'Logged out successfully' });
 });
+
+/* =========================================================
+   FORGOT PASSWORD
+========================================================= */
+router.post('/forgot-password', async (req: Request, res: Response) => {
+    try {
+        const { email } = req.body;
+
+        const result = await query('SELECT id FROM public.users WHERE email = $1', [email]);
+        if (result.rows.length === 0) {
+            // Security: Don't reveal if user exists
+            return res.json({ message: 'If that email exists, we sent a reset link to it.' });
+        }
+
+        const user = result.rows[0];
+        const resetToken = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+
+        // Expires in 1 hour
+        const expires = new Date(Date.now() + 3600000);
+
+        await query(
+            'UPDATE public.users SET reset_token = $1, reset_expires = $2 WHERE id = $3',
+            [resetToken, expires, user.id]
+        );
+
+        // DEV MODE: Log the link
+        const resetLink = `http://localhost:3000/reset-password?token=${resetToken}`;
+        logger.info('🔑 PASSWORD RESET LINK:', { email, resetLink });
+        console.log('\n\n==================================================');
+        console.log('🔗 PASSWORD RESET LINK:', resetLink);
+        console.log('==================================================\n\n');
+
+        return res.json({ message: 'If that email exists, we sent a reset link to it.' });
+    } catch (error) {
+        logger.error('Forgot password error:', error);
+        return errorResponse(res, 500, { error: 'Internal server error', code: 'SERVER_ERROR' });
+    }
+});
+
+/* =========================================================
+   RESET PASSWORD
+========================================================= */
+router.post('/reset-password', async (req: Request, res: Response) => {
+    try {
+        const { token, newPassword } = req.body;
+
+        const result = await query(
+            'SELECT id FROM public.users WHERE reset_token = $1 AND reset_expires > NOW()',
+            [token]
+        );
+
+        if (result.rows.length === 0) {
+            return errorResponse(res, 400, { error: 'Invalid or expired token', code: 'AUTH_TOKEN_INVALID' });
+        }
+
+        const user = result.rows[0];
+        const passwordHash = await bcrypt.hash(newPassword, 10);
+
+        await query(
+            'UPDATE public.users SET password_hash = $1, reset_token = NULL, reset_expires = NULL WHERE id = $2',
+            [passwordHash, user.id]
+        );
+
+        return res.json({ message: 'Password updated successfully' });
+    } catch (error) {
+        logger.error('Reset password error:', error);
+        return errorResponse(res, 500, { error: 'Internal server error', code: 'SERVER_ERROR' });
+    }
+});
+
 
 /* =========================================================
    VERIFY TOKEN

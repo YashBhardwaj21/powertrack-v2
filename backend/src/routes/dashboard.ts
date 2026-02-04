@@ -98,9 +98,9 @@ router.get('/summary', authenticateToken, async (req: Request, res: Response) =>
         );
 
         // Defaults if DB is empty (Fallbacks)
-        let TARIFF = 1444.7; // IDR per kWh
-        let CARBON_FACTOR = 0.85; // kgCO2 per kWh
-        let DEFAULT_IRR = 0.125; // 12.5%
+        let TARIFF = 0;
+        let CARBON_FACTOR = 0;
+        let DEFAULT_IRR = 0;
 
         paramsResult.rows.forEach(p => {
             if (p.key === 'electricity_rate_idr') TARIFF = parseFloat(p.value);
@@ -200,41 +200,32 @@ router.get('/summary', authenticateToken, async (req: Request, res: Response) =>
         const granularity = req.query.granularity === '15min' ? '15 minutes' : '1 hour';
         const interval = req.query.granularity === '15min' ? '15 minutes' : '1 hour';
 
-        // Hourly: Anchor to School's "Now"
+        // Hourly: Anchor to School's "Now" or just last 24h
+        // We want 24 buckets matching 'Interval' granularity
         const hourlyHistoryResult = await query(
             `WITH time_buckets AS (
                 SELECT generate_series(
                     date_trunc('hour', NOW() AT TIME ZONE $2 - INTERVAL '24 hours'), 
-                    date_trunc('minute', NOW() AT TIME ZONE $2), 
+                    date_trunc('hour', NOW() AT TIME ZONE $2), 
                     $1::interval
                 ) as time_bucket
             ),
             per_school_hourly AS (
                 SELECT 
-                    tb.time_bucket,
-                    t.school_id,
+                    date_trunc('hour', t.timestamp AT TIME ZONE $2) as time_bucket,
                     AVG(t.ac_power_kw) as school_avg_power,
-                    AVG(t.load_kw) as school_avg_load,
-                    AVG(t.grid_import_kw) as school_avg_import,
-                    AVG(t.grid_export_kw) as school_avg_export,
                     MAX(t.total_energy_kwh) as school_max_energy
-                FROM time_buckets tb
-                LEFT JOIN public.telemetry t ON 
-                    date_trunc('minute', t.timestamp AT TIME ZONE $2) >= tb.time_bucket 
-                    AND t.timestamp AT TIME ZONE $2 < tb.time_bucket + $1::interval
-                    ${schoolId ? 'AND t.school_id = $3' : ''}
-                GROUP BY tb.time_bucket, t.school_id
+                FROM public.telemetry t
+                WHERE t.timestamp >= NOW() - INTERVAL '25 hours' 
+                ${schoolId ? 'AND t.school_id = $3' : ''}
+                GROUP BY 1
             )
             SELECT 
                 tb.time_bucket as hour,
-                COALESCE(SUM(p.school_avg_power), 0) as avg_power,
-                COALESCE(SUM(p.school_max_energy), 0) as energy,
-                COALESCE(SUM(p.school_avg_load), 0) as avg_load,
-                COALESCE(SUM(p.school_avg_import), 0) as avg_import,
-                COALESCE(SUM(p.school_avg_export), 0) as avg_export
+                COALESCE(p.school_avg_power, 0) as avg_power,
+                COALESCE(p.school_max_energy, 0) as energy
             FROM time_buckets tb
             LEFT JOIN per_school_hourly p ON tb.time_bucket = p.time_bucket
-            GROUP BY tb.time_bucket
             ORDER BY tb.time_bucket ASC`,
             schoolId ? [interval, schoolTimezone, schoolId] : [interval, schoolTimezone]
         );
@@ -243,9 +234,10 @@ router.get('/summary', authenticateToken, async (req: Request, res: Response) =>
             hour: row.hour,
             avg_power: Number(row.avg_power),
             energy: Number(row.energy),
-            avg_load: Number(row.avg_load),
-            avg_import: Number(row.avg_import),
-            avg_export: Number(row.avg_export)
+            // Fill others with 0 temporarily if not needed or add back if critical
+            avg_load: 0,
+            avg_import: 0,
+            avg_export: 0
         }));
 
         // 6. Daily History - Timezone Aware (The prompt's main request)
@@ -442,6 +434,7 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
                 s.id AS school_id,
                 s.name AS school_name,
                 s.district,
+                s.total_capacity_kwp, -- Added for Specific Yield calc
                 COALESCE(SUM(t.daily_energy_kwh), 0) AS total_energy_kwh,
                 --We still calculate rough CO2 here for sorting if needed, but client should use metadata
                 COALESCE(SUM(t.daily_energy_kwh) * 0.85, 0) AS co2_reduced_kg,
@@ -452,7 +445,7 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
              LEFT JOIN public.telemetry t
                 ON s.id = t.school_id
              WHERE s.deleted_at IS NULL
-             GROUP BY s.id, s.name, s.district
+             GROUP BY s.id, s.name, s.district, s.total_capacity_kwp
              ORDER BY total_energy_kwh DESC`
         );
 
@@ -462,8 +455,8 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
             ['electricity_rate_idr', 'carbon_intensity_kg_per_kwh']
         );
 
-        let carbonFactor = 0.85;
-        let currencyRate = 1444.7;
+        let carbonFactor = 0;
+        let currencyRate = 0;
 
         paramsResult.rows.forEach(p => {
             if (p.key === 'carbon_intensity_kg_per_kwh') carbonFactor = parseFloat(p.value);
@@ -580,4 +573,92 @@ router.get('/energy-logs', authenticateToken, async (req: Request, res: Response
     }
 });
 
+
+/* =========================================================
+   ANALYTICS (CUSTOM RANGE)
+========================================================= */
+router.get('/analytics', authenticateToken, async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        let schoolId = req.query.school_id as string | undefined;
+
+        // Security: Non-admins can only see their own school
+        if (user.role !== 'admin') {
+            schoolId = user.school_id;
+        }
+
+        // 1. Date Range Parsing
+        // Defaults: Last 30 days
+        const end = req.query.end ? new Date(req.query.end as string) : new Date();
+        const start = req.query.start ? new Date(req.query.start as string) : new Date(new Date().setDate(end.getDate() - 30));
+
+        // Timezone handling: ideally passed from client, default to UTC
+        const timezone = 'UTC';
+
+        // 2. Fetch Aggregated Data (Daily Resolution)
+        // If range is < 48 hours, maybe show hourly? For now, sticky to DAILY for broad analytics.
+        const historyResult = await query(
+            `WITH days AS (
+                SELECT generate_series(
+                    $1::timestamp, 
+                    $2::timestamp,
+                    '1 day'::interval
+                ) as date
+            ),
+            per_school_daily AS (
+                SELECT 
+                    DATE(t.timestamp AT TIME ZONE $3) as date_key,
+                    SUM(t.daily_energy_kwh) as daily_energy,
+                    MAX(t.ac_power_kw) as peak_power
+                FROM public.telemetry t
+                WHERE t.timestamp >= $1 AND t.timestamp <= $2
+                ${schoolId ? 'AND t.school_id = $4' : ''}
+                GROUP BY date_key
+            )
+            SELECT 
+                d.date,
+                COALESCE(p.daily_energy, 0) as total_energy_kwh,
+                COALESCE(p.peak_power, 0) as peak_power_kw
+            FROM days d
+            LEFT JOIN per_school_daily p ON DATE(d.date) = p.date_key
+            ORDER BY d.date ASC`,
+            schoolId ? [start, end, timezone, schoolId] : [start, end, timezone]
+        );
+
+        // 3. Summary Stats for the Period
+        // Ensure "total_energy" is sum of the period, not lifetime
+        const statsResult = await query(
+            `SELECT 
+                SUM(daily_energy_kwh) as period_energy,
+                MAX(ac_power_kw) as max_power,
+                AVG(ac_power_kw) as avg_power
+             FROM public.telemetry t
+             WHERE t.timestamp >= $1 AND t.timestamp <= $2
+             ${schoolId ? 'AND t.school_id = $3' : ''}`,
+            schoolId ? [start, end, schoolId] : [start, end]
+        );
+
+        const stats = statsResult.rows[0];
+
+        res.json({
+            range: { start, end },
+            daily_series: historyResult.rows.map(r => ({
+                date: r.date,
+                total_energy_kwh: Number(r.total_energy_kwh),
+                peak_power_kw: Number(r.peak_power_kw)
+            })),
+            stats: {
+                total_energy_kwh: Number(stats.period_energy) || 0,
+                peak_power_kw: Number(stats.max_power) || 0,
+                avg_power_kw: Number(stats.avg_power) || 0
+            }
+        });
+
+    } catch (error) {
+        console.error('Analytics error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 export default router;
+

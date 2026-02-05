@@ -147,19 +147,31 @@ export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data }) => {
                 name: 'Hourly Energy',
                 type: 'bar',
                 data: chartValues,
-                barWidth: '60%', // Good width for hourly bars
+                barWidth: '60%',
                 barMaxWidth: 40,
                 itemStyle: {
                     borderRadius: [4, 4, 0, 0],
                     color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: '#3b82f6' }, // Blue-500
+                        { offset: 0, color: '#2563eb' }, // Blue-600
                         { offset: 1, color: '#60a5fa' }  // Blue-400
                     ])
                 },
                 showBackground: true,
                 backgroundStyle: {
-                    color: 'rgba(241, 245, 249, 0.5)',
+                    color: 'rgba(241, 245, 249, 0.4)',
                     borderRadius: [4, 4, 0, 0]
+                },
+                animationDelay: (idx: number) => idx * 50, // Staggered animation
+                markPoint: {
+                    data: [
+                        { type: 'max', name: 'Peak' }
+                    ],
+                    label: {
+                        color: '#fff',
+                        backgroundColor: '#1e293b',
+                        borderRadius: 4,
+                        padding: [4, 8]
+                    }
                 }
             }
         ],

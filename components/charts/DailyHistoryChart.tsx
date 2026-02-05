@@ -69,11 +69,17 @@ export const DailyHistoryChart: React.FC<DailyHistoryChartProps> = ({ data }) =>
                 data: data.map(d => ({
                     value: d.total_energy_kwh,
                     itemStyle: {
-                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: "#3b82f6" }, { offset: 1, color: "#2563eb" }])
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: "#0ea5e9" }, { offset: 1, color: "#38bdf8" }])
                     }
                 })),
                 barWidth: '50%',
-                itemStyle: { borderRadius: [4, 4, 0, 0] }
+                itemStyle: { borderRadius: [4, 4, 0, 0] },
+                animationDelay: (idx: number) => idx * 30, // Faster stagger for more bars
+                markLine: {
+                    data: [{ type: 'average', name: 'Avg' }],
+                    lineStyle: { color: '#94a3b8', type: 'dashed' },
+                    label: { position: 'end', color: '#64748b' }
+                }
             }
         ]
     };

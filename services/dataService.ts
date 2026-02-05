@@ -136,6 +136,7 @@ export const createSchool = async (schoolData: {
     longitude: number;
     total_capacity_kwp: number;
     total_cost_idr: number;
+    timezone?: string;
     api_key?: string;
     device_profile_id?: string;
 }) => {

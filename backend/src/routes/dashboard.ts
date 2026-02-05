@@ -37,7 +37,6 @@ router.get('/summary', authenticateToken, async (req: Request, res: Response) =>
         const EXPORT_TARIFF = params.feed_in_tariff_idr || BUSINESS_LOGIC.DEFAULT_FEED_IN_TARIFF_IDR;
 
         // 3. Parallel Data Fetching (Crash Immunity)
-        const schoolTimezone = 'Asia/Kolkata'; // TODO: Fetch from DB per school
         const granularity = req.query.granularity === '15min' ? '15 minutes' : '1 hour';
 
         const [
@@ -52,8 +51,8 @@ router.get('/summary', authenticateToken, async (req: Request, res: Response) =>
             dashboardService.getActiveSchools(),
             dashboardService.getCurrentTelemetry(schoolId),
             dashboardService.getAlerts(schoolId),
-            dashboardService.getHourlyHistory(schoolId, granularity, schoolTimezone),
-            dashboardService.getDailyHistory(schoolId, schoolTimezone),
+            dashboardService.getHourlyHistory(schoolId, granularity),
+            dashboardService.getDailyHistory(schoolId),
             dashboardService.getStorageStats(),
             dashboardService.getLeaderboardStats()
         ]);
@@ -84,7 +83,8 @@ router.get('/summary', authenticateToken, async (req: Request, res: Response) =>
         try {
             community_stats = dashboardService.calculateCommunityStats(current_data, TARIFF);
             // Cast to any if partial match issues, but service returns full object.
-            financial_stats = await dashboardService.getFinancialStats(schoolId, schools, current_data, TARIFF, EXPORT_TARIFF, CARBON_FACTOR, DEFAULT_IRR, schoolTimezone) as any;
+            // Cast to any if partial match issues, but service returns full object.
+            financial_stats = await dashboardService.getFinancialStats(schoolId, schools, current_data, TARIFF, EXPORT_TARIFF, CARBON_FACTOR, DEFAULT_IRR, 'Asia/Jakarta') as any; // Fallback, service uses DB timezone now
             model_metrics = dashboardService.getModelMetrics(alerts.length);
         } catch (calcError) {
             console.error('Error calculating derived stats:', calcError);
@@ -212,20 +212,30 @@ router.get('/analytics', authenticateToken, async (req: Request, res: Response) 
 
         const end = req.query.end ? new Date(req.query.end as string) : new Date();
         const start = req.query.start ? new Date(req.query.start as string) : new Date(new Date().setDate(end.getDate() - 30));
-        const timezone = 'Asia/Kolkata';
+
 
         const historyResult = await query(
             `WITH days AS (SELECT generate_series($1::timestamp, $2::timestamp, '1 day'::interval) as date),
-            per_school_daily AS (SELECT DATE(t.timestamp AT TIME ZONE $3) as date_key, MAX(t.daily_energy_kwh) as daily_energy, MAX(t.ac_power_kw) as peak_power
-                FROM public.telemetry t WHERE t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $4' : ''} GROUP BY date_key)
+            per_school_daily AS (
+                SELECT DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')) as date_key, MAX(t.daily_energy_kwh) as daily_energy, MAX(t.ac_power_kw) as peak_power
+                FROM public.telemetry t
+                JOIN public.schools s ON t.school_id = s.id
+                WHERE t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $3' : ''}
+                GROUP BY date_key
+            )
             SELECT d.date, COALESCE(p.daily_energy, 0) as total_energy_kwh, COALESCE(p.peak_power, 0) as peak_power_kw
             FROM days d LEFT JOIN per_school_daily p ON DATE(d.date) = p.date_key ORDER BY d.date ASC`,
-            schoolId ? [start, end, timezone, schoolId] : [start, end, timezone]
+            schoolId ? [start, end, schoolId] : [start, end]
         );
 
         const statsResult = await query(
-            `WITH daily_maxes AS (SELECT DATE(timestamp AT TIME ZONE 'UTC') as day, school_id, MAX(daily_energy_kwh) as day_energy FROM public.telemetry t
-                WHERE t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $3' : ''} GROUP BY day, school_id)
+            `WITH daily_maxes AS (
+                SELECT DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')) as day, t.school_id, MAX(t.daily_energy_kwh) as day_energy 
+                FROM public.telemetry t
+                JOIN public.schools s ON t.school_id = s.id
+                WHERE t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $3' : ''} 
+                GROUP BY day, t.school_id
+             )
              SELECT COALESCE(SUM(day_energy), 0) as period_energy,
                 (SELECT COALESCE(MAX(ac_power_kw), 0) FROM public.telemetry t WHERE t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $3' : ''}) as max_power,
                 (SELECT COALESCE(AVG(ac_power_kw), 0) FROM public.telemetry t WHERE t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $3' : ''}) as avg_power

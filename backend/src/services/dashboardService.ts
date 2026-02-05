@@ -53,36 +53,43 @@ export const dashboardService = {
         };
     },
 
-    async getHourlyHistory(schoolId: string | undefined, interval: string, timezone: string) {
+    async getHourlyHistory(schoolId: string | undefined, interval: string, _legacyTimezone?: string) {
+        // NOTE: We now ignore the _legacyTimezone param and join schools.timezone directly
         const result = await query(
-            `WITH time_buckets AS (
-                SELECT generate_series(
-                    date_trunc('hour', NOW() AT TIME ZONE $2 - INTERVAL '24 hours'), 
-                    date_trunc('hour', NOW() AT TIME ZONE $2), 
+            `WITH school_tz AS (
+                SELECT id, COALESCE(timezone, 'Asia/Jakarta') as tz FROM public.schools
+            ),
+            time_buckets AS (
+                SELECT s.id as school_id, generate_series(
+                    date_trunc('hour', NOW() AT TIME ZONE s.tz - INTERVAL '24 hours'), 
+                    date_trunc('hour', NOW() AT TIME ZONE s.tz), 
                     $1::interval
                 ) as time_bucket
+                FROM school_tz s
+                WHERE ($2::uuid IS NULL OR s.id = $2::uuid)
             ),
             per_school_hourly AS (
                 SELECT 
-                    date_trunc('hour', t.timestamp AT TIME ZONE $2) as time_bucket,
+                    date_trunc('hour', t.timestamp AT TIME ZONE s.tz) as time_bucket,
                     t.school_id,
                     AVG(t.ac_power_kw) as avg_power,
                     AVG(t.grid_export_kw) as avg_export_kw,
                     MAX(t.daily_energy_kwh) as day_energy_cum,
                     0 as day_export_cum
                 FROM public.telemetry t
+                JOIN school_tz s ON t.school_id = s.id
                 WHERE t.timestamp >= NOW() - INTERVAL '26 hours' 
-                ${schoolId ? 'AND t.school_id = $3' : ''}
+                AND ($2::uuid IS NULL OR t.school_id = $2::uuid)
                 GROUP BY 1, 2
             ),
             system_hourly AS (
                 SELECT
-                    time_bucket,
-                    SUM(avg_power) as sys_avg_power,
-                    SUM(COALESCE(avg_export_kw, 0)) as sys_avg_export,
-                    SUM(day_energy_cum) as sys_day_energy_cum,
-                    SUM(COALESCE(day_export_cum, 0)) as sys_day_export_cum
-                FROM per_school_hourly
+                    tb.time_bucket,
+                    SUM(COALESCE(psh.avg_power, 0)) as sys_avg_power,
+                    SUM(COALESCE(psh.avg_export_kw, 0)) as sys_avg_export,
+                    SUM(COALESCE(psh.day_energy_cum, 0)) as sys_day_energy_cum
+                FROM time_buckets tb
+                LEFT JOIN per_school_hourly psh ON tb.time_bucket = psh.time_bucket AND tb.school_id = psh.school_id
                 GROUP BY 1
             ),
             hourly_deltas AS (
@@ -91,21 +98,18 @@ export const dashboardService = {
                     sys_avg_power,
                     sys_avg_export,
                     sys_day_energy_cum,
-                    sys_day_energy_cum - LAG(sys_day_energy_cum) OVER (ORDER BY time_bucket) as energy_delta,
-                    sys_day_export_cum - LAG(sys_day_export_cum) OVER (ORDER BY time_bucket) as export_delta
+                    sys_day_energy_cum - LAG(sys_day_energy_cum) OVER (ORDER BY time_bucket) as energy_delta
                 FROM system_hourly
             )
             SELECT 
-                tb.time_bucket as hour,
-                COALESCE(hd.sys_avg_power, 0) as avg_power,
-                COALESCE(hd.sys_avg_export, 0) as avg_export_power,
-                GREATEST(COALESCE(hd.energy_delta, hd.sys_avg_power, 0), 0) as energy,
-                GREATEST(COALESCE(hd.export_delta, hd.sys_avg_export, 0), 0) as export_energy
-            FROM time_buckets tb
-            LEFT JOIN hourly_deltas hd ON tb.time_bucket = hd.time_bucket
-            WHERE tb.time_bucket >= date_trunc('hour', NOW() AT TIME ZONE $2 - INTERVAL '24 hours')
-            ORDER BY tb.time_bucket ASC`,
-            schoolId ? [interval, timezone, schoolId] : [interval, timezone]
+                time_bucket as hour,
+                COALESCE(sys_avg_power, 0) as avg_power,
+                COALESCE(sys_avg_export, 0) as avg_export_power,
+                GREATEST(COALESCE(energy_delta, sys_avg_power, 0), 0) as energy
+            FROM hourly_deltas
+            WHERE time_bucket >= date_trunc('hour', NOW() AT TIME ZONE (SELECT COALESCE(timezone, 'Asia/Jakarta') FROM public.schools LIMIT 1) - INTERVAL '24 hours')
+            ORDER BY time_bucket ASC`,
+            [interval, schoolId || null]
         );
 
         return result.rows.map(row => ({
@@ -114,18 +118,24 @@ export const dashboardService = {
             energy: Number(row.energy),
             avg_load: 0,
             avg_import: 0,
-            avg_export: Number(row.export_energy)
+            avg_export: Number(row.avg_export_power)
         }));
     },
 
-    async getDailyHistory(schoolId: string | undefined, timezone: string) {
+    async getDailyHistory(schoolId: string | undefined, _legacyTimezone?: string) {
+        // NOTE: Dynamic timezone join
         const result = await query(
-            `WITH days AS (
-                SELECT generate_series(
-                    (DATE(NOW() AT TIME ZONE $1) - INTERVAL '29 days')::timestamp, 
-                    DATE(NOW() AT TIME ZONE $1)::timestamp,
+            `WITH school_tz AS (
+                SELECT id, COALESCE(timezone, 'Asia/Jakarta') as tz FROM public.schools
+                WHERE ($1::uuid IS NULL OR id = $1::uuid)
+            ),
+            days AS (
+                SELECT s.id as school_id, generate_series(
+                    (DATE(NOW() AT TIME ZONE s.tz) - INTERVAL '29 days')::timestamp, 
+                    DATE(NOW() AT TIME ZONE s.tz)::timestamp,
                     '1 day'::interval
                 ) as date
+                FROM school_tz s
             ),
             per_school_daily AS (
                 SELECT 
@@ -133,19 +143,20 @@ export const dashboardService = {
                     t.school_id,
                     MAX(t.daily_energy_kwh) as school_day_max
                 FROM days d
+                JOIN school_tz s ON d.school_id = s.id
                 LEFT JOIN public.telemetry t ON 
-                    DATE(t.timestamp AT TIME ZONE $1) = DATE(d.date)
-                    ${schoolId ? 'AND t.school_id = $2' : ''}
+                    t.school_id = s.id AND
+                    DATE(t.timestamp AT TIME ZONE s.tz) = DATE(d.date)
                 GROUP BY d.date, t.school_id
             )
             SELECT 
                 d.date,
                 COALESCE(SUM(p.school_day_max), 0) as total_energy_kwh
             FROM days d
-            LEFT JOIN per_school_daily p ON d.date = p.date
+            LEFT JOIN per_school_daily p ON d.date = p.date AND d.school_id = p.school_id
             GROUP BY d.date
             ORDER BY d.date ASC`,
-            schoolId ? [timezone, schoolId] : [timezone]
+            [schoolId || null]
         );
         return result.rows.map(row => ({
             date: row.date,
@@ -169,13 +180,14 @@ export const dashboardService = {
         const monthStatsResult = await query(
             `SELECT SUM(daily_energy_kwh) as total_gen, SUM(daily_export_kwh) as total_exp
              FROM (
-                SELECT school_id, DATE(timestamp AT TIME ZONE $1), MAX(daily_energy_kwh) as daily_energy_kwh, MAX(daily_export_kwh) as daily_export_kwh
-                FROM public.telemetry
-                WHERE timestamp >= date_trunc('month', NOW() AT TIME ZONE $1)
-                ${schoolId ? 'AND school_id = $2' : ''}
+                SELECT t.school_id, DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')), MAX(t.daily_energy_kwh) as daily_energy_kwh, MAX(t.daily_export_kwh) as daily_export_kwh
+                FROM public.telemetry t
+                JOIN public.schools s ON t.school_id = s.id
+                WHERE t.timestamp >= date_trunc('month', NOW() AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta'))
+                AND ($1::uuid IS NULL OR t.school_id = $1::uuid)
                 GROUP BY 1, 2
              ) daily_sums`,
-            schoolId ? [timezone, schoolId] : [timezone]
+            [schoolId || null]
         );
         const monthGen = Number(monthStatsResult.rows[0]?.total_gen) || 0;
         const monthExp = Number(monthStatsResult.rows[0]?.total_exp) || 0;
@@ -195,13 +207,13 @@ export const dashboardService = {
         const avgDailyResult = await query(
             `SELECT COALESCE(AVG(daily_max), 0) as avg_gen, COALESCE(AVG(export_max), 0) as avg_exp
              FROM (
-                SELECT DATE(timestamp AT TIME ZONE $1) as day, MAX(daily_energy_kwh) as daily_max, MAX(daily_export_kwh) as export_max
+                SELECT DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')) as day, MAX(t.daily_energy_kwh) as daily_max, MAX(t.daily_export_kwh) as export_max
                 FROM public.telemetry t JOIN public.schools s ON t.school_id = s.id
                 WHERE s.deleted_at IS NULL AND t.timestamp >= NOW() - INTERVAL '30 days'
-                ${schoolId ? 'AND t.school_id = $2' : ''}
+                AND ($1::uuid IS NULL OR t.school_id = $1::uuid)
                 GROUP BY day, t.school_id
              ) p`,
-            schoolId ? [timezone, schoolId] : [timezone]
+            [schoolId || null]
         );
 
         const avgDailyGen = Number(avgDailyResult.rows[0]?.avg_gen) || 0;

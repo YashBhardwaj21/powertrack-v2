@@ -61,8 +61,17 @@ CREATE TABLE IF NOT EXISTS public.schools (
     device_profile_id UUID REFERENCES public.device_profiles(id),
     deleted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    timezone VARCHAR(50) DEFAULT 'Asia/Jakarta'
 );
+
+-- Idempotent Migration for Timezone
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='schools' AND column_name='timezone') THEN
+        ALTER TABLE public.schools ADD COLUMN timezone VARCHAR(50) DEFAULT 'Asia/Jakarta';
+    END IF;
+END $$;
 
 -- View for active schools (simple filtering)
 CREATE OR REPLACE VIEW public.active_schools AS
@@ -87,9 +96,9 @@ CREATE TABLE IF NOT EXISTS public.users (
 -- =========================================================
 -- TELEMETRY (PARTITIONED)
 -- =========================================================
-DROP TABLE IF EXISTS public.telemetry CASCADE;
+-- REMOVED DESTRUCTIVE DROP: DROP TABLE IF EXISTS public.telemetry CASCADE;
 
-CREATE TABLE public.telemetry (
+CREATE TABLE IF NOT EXISTS public.telemetry (
     school_id UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     server_at TIMESTAMPTZ DEFAULT NOW(),
@@ -185,16 +194,13 @@ CREATE TABLE IF NOT EXISTS public.alerts (
 -- =========================================================
 -- INDEXES
 -- =========================================================
-DROP INDEX IF EXISTS idx_users_email;
-CREATE INDEX idx_users_email ON public.users(email);
+CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
 
-DROP INDEX IF EXISTS idx_schools_api_key_hash;
-CREATE UNIQUE INDEX idx_schools_api_key_hash ON public.schools(api_key_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_api_key_hash ON public.schools(api_key_hash);
 
 CREATE INDEX IF NOT EXISTS idx_telemetry_school_time ON public.telemetry(school_id, timestamp DESC);
 
-DROP INDEX IF EXISTS idx_alerts_school_unresolved;
-CREATE INDEX idx_alerts_school_unresolved
+CREATE INDEX IF NOT EXISTS idx_alerts_school_unresolved
     ON public.alerts(school_id, timestamp DESC)
     WHERE resolved = FALSE;
 

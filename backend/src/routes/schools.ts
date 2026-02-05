@@ -143,8 +143,8 @@ router.post(
             const rawKey = api_key || `pt_live_${crypto.randomBytes(32).toString('hex')}`;
             const apiKeyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
 
-            // 🕒 Auto-Detect Timezone
-            const timezone = getTimezoneForDistrict(district);
+            // 🕒 Use Provided Timezone or Default to WIB
+            const finalTimezone = (req.body.timezone as string) || 'Asia/Jakarta';
 
             const result = await query(
                 `INSERT INTO public.schools (
@@ -171,7 +171,7 @@ router.post(
                     total_cost_idr,
                     apiKeyHash,
                     finalProfileId || null,
-                    timezone
+                    finalTimezone
                 ]
             );
 

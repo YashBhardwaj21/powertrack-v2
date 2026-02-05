@@ -25,7 +25,8 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
         latitude: -6.2088,
         longitude: 106.8456,
         total_capacity_kwp: 5.0,
-        total_cost_idr: 0
+        total_cost_idr: 0,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta'
     });
 
     // Hardware details

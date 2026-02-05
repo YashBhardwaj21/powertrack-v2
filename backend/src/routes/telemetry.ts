@@ -4,6 +4,7 @@ import { validate } from '../middleware/validation.js';
 import { authenticateApiKey } from '../middleware/auth.js';
 import { broadcastTelemetryUpdate } from '../websocket/index.js';
 import { telemetryIngestSchema } from '../validation/schemas.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -34,7 +35,7 @@ router.post(
             if (driftSeconds > 86400) { // > 24h drift
                 isSuspectTime = true;
                 ingestionFlag = 'suspect_time';
-                console.warn(`[Ingest] Suspect timestamp from ${schoolId}: drift=${driftSeconds}s`);
+                logger.warn({ schoolId, driftSeconds }, 'Suspect timestamp detected');
             } else if (driftSeconds > 600) { // > 10 min
                 isBackfill = true;
                 ingestionFlag = 'backfill';
@@ -55,6 +56,9 @@ router.post(
                 current_a: getVal('current') ?? null,
                 daily_kwh: getVal('energy_today') ?? null,
                 energy_total_kwh: getVal('energy_total') ?? null,
+                // Net Metering
+                daily_export_kwh: getVal('energy_export_today') ?? null,
+                daily_import_kwh: getVal('energy_import_today') ?? null,
                 // Backend-specific derived or optional
                 temp_c: payload.temp_c ?? null,
                 irradiance_wm2: payload.irradiance_wm2 ?? null,
@@ -112,6 +116,8 @@ router.post(
                     ac_current,
                     daily_energy_kwh,
                     total_energy_kwh,
+                    daily_export_kwh,
+                    daily_import_kwh,
                     panel_temp_c,
                     irradiance_wm2,
                     efficiency_percent,
@@ -126,7 +132,7 @@ router.post(
                 ) VALUES (
                     $1, 
                     COALESCE(to_timestamp($2::numeric), NOW()),
-                    $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+                    $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
                 )
                 RETURNING *`,
                 [
@@ -137,6 +143,8 @@ router.post(
                     data.current_a || 0,
                     data.daily_kwh || 0,
                     data.energy_total_kwh || 0,
+                    data.daily_export_kwh || 0,
+                    data.daily_import_kwh || 0,
                     data.temp_c,
                     data.irradiance_wm2,
                     efficiency_percent,
@@ -177,7 +185,7 @@ router.post(
             res.status(201).json(response);
 
         } catch (error: any) {
-            console.error('[Ingest] Telemetry ingestion error:', error);
+            logger.error({ err: error, schoolId: (req as any).schoolId }, 'Telemetry ingestion error');
 
             // Check for specific database errors
             if (error.code === '23503') { // FK violation
@@ -223,7 +231,7 @@ router.get('/:schoolId/latest', async (req: Request, res: Response) => {
 
         res.json(result.rows[0]);
     } catch (error) {
-        console.error('Get latest telemetry error:', error);
+        logger.error({ err: error, schoolId: req.params.schoolId }, 'Get latest telemetry error');
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -246,7 +254,7 @@ router.get('/:schoolId/history', async (req: Request, res: Response) => {
 
         res.json(result.rows);
     } catch (error) {
-        console.error('Get telemetry history error:', error);
+        logger.error({ err: error, schoolId: req.params.schoolId }, 'Get telemetry history error');
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -261,7 +269,7 @@ router.get('/all/latest', async (_req: Request, res: Response) => {
 
         res.json(result.rows);
     } catch (error) {
-        console.error('Get all telemetry error:', error);
+        logger.error({ err: error }, 'Get all telemetry error');
         res.status(500).json({ error: 'Internal server error' });
     }
 });

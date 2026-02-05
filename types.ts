@@ -123,6 +123,13 @@ export interface ModelMetrics {
     precision: number;
     recall: number;
     f1_score: number;
+    co2_avoided_kg: number;
+    trees_planted: number;
+    car_km_avoided: number;
+    data_sufficiency?: {
+      days_observed: number;
+      is_projected: boolean;
+    };
     total_anomalies_detected: number;
   };
 }

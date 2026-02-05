@@ -51,7 +51,15 @@ export const FinancialAnalysis: React.FC<FinancialAnalysisProps> = ({ stats }) =
                         {/* Tooltip */}
                         <div className="absolute top-0 left-0 -mt-16 hidden group-hover:block bg-slate-800 text-white text-xs p-2 rounded z-10 w-48 shadow-lg">
                             Time required to recover the cost of investment through energy savings.
+                            {stats.data_sufficiency?.is_projected && (
+                                <div className="mt-1 text-orange-300 border-t border-slate-600 pt-1">
+                                    Based on simulated projection. Needs 3+ days of data for accuracy.
+                                </div>
+                            )}
                         </div>
+                        {stats.data_sufficiency?.is_projected && (
+                            <div className="text-[10px] text-orange-500 font-medium">Est. (Low Data)</div>
+                        )}
                     </div>
 
                     {/* IRR */}

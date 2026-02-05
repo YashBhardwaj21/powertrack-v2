@@ -137,23 +137,36 @@ export const dashboardService = {
                 ) as date
                 FROM school_tz s
             ),
-            per_school_daily AS (
+            -- 1. Aggregated History (Fast)
+            aggregated_daily AS (
+                SELECT school_id, day, daily_energy_kwh
+                FROM public.telemetry_daily
+                WHERE day >= (CURRENT_DATE - INTERVAL '30 days')
+            ),
+            -- 2. Live Today (Real-time)
+            live_today AS (
                 SELECT 
-                    d.date,
-                    t.school_id,
-                    MAX(t.daily_energy_kwh) as school_day_max
-                FROM days d
-                JOIN school_tz s ON d.school_id = s.id
-                LEFT JOIN public.telemetry t ON 
-                    t.school_id = s.id AND
-                    DATE(t.timestamp AT TIME ZONE s.tz) = DATE(d.date)
-                GROUP BY d.date, t.school_id
+                    t.school_id, 
+                    DATE(t.timestamp AT TIME ZONE s.tz) as day, 
+                    MAX(t.daily_energy_kwh) as daily_energy_kwh
+                FROM public.telemetry t
+                JOIN school_tz s ON t.school_id = s.id
+                WHERE t.timestamp >= NOW() - INTERVAL '24 hours' -- Optimization: Limit scan
+                GROUP BY 1, 2
+            ),
+            -- 3. Union Sources
+            combined_daily AS (
+                SELECT school_id, day, daily_energy_kwh FROM aggregated_daily
+                UNION ALL
+                SELECT school_id, day, daily_energy_kwh FROM live_today
             )
             SELECT 
                 d.date,
-                COALESCE(SUM(p.school_day_max), 0) as total_energy_kwh
+                COALESCE(SUM(cd.daily_energy_kwh), 0) as total_energy_kwh
             FROM days d
-            LEFT JOIN per_school_daily p ON d.date = p.date AND d.school_id = p.school_id
+            LEFT JOIN combined_daily cd ON 
+                cd.school_id = d.school_id AND 
+                cd.day = DATE(d.date)
             GROUP BY d.date
             ORDER BY d.date ASC`,
             [schoolId || null]
@@ -178,15 +191,37 @@ export const dashboardService = {
 
         // 3. Month Savings
         const monthStatsResult = await query(
-            `SELECT SUM(daily_energy_kwh) as total_gen, SUM(daily_export_kwh) as total_exp
-             FROM (
-                SELECT t.school_id, DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')), MAX(t.daily_energy_kwh) as daily_energy_kwh, MAX(t.daily_export_kwh) as daily_export_kwh
+            `WITH school_tz AS (
+                SELECT id, COALESCE(timezone, 'Asia/Jakarta') as tz FROM public.schools
+                WHERE ($1::uuid IS NULL OR id = $1::uuid)
+             ),
+             -- 1. Aggregated Past Days (Fast)
+             agg_history AS (
+                SELECT school_id, daily_energy_kwh, daily_export_kwh
+                FROM public.telemetry_daily
+                WHERE day >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Jakarta') -- Approximation for pruning
+                AND ($1::uuid IS NULL OR school_id = $1::uuid)
+             ),
+             -- 2. Live Today (Real-time)
+             live_today AS (
+                SELECT 
+                    t.school_id, 
+                    MAX(t.daily_energy_kwh) as daily_energy_kwh, 
+                    MAX(t.daily_export_kwh) as daily_export_kwh
                 FROM public.telemetry t
-                JOIN public.schools s ON t.school_id = s.id
-                WHERE t.timestamp >= date_trunc('month', NOW() AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta'))
+                JOIN school_tz s ON t.school_id = s.id
+                WHERE t.timestamp >= date_trunc('day', NOW() AT TIME ZONE s.tz)
                 AND ($1::uuid IS NULL OR t.school_id = $1::uuid)
-                GROUP BY 1, 2
-             ) daily_sums`,
+                GROUP BY t.school_id
+             )
+             SELECT 
+                COALESCE(SUM(src.daily_energy_kwh), 0) as total_gen, 
+                COALESCE(SUM(src.daily_export_kwh), 0) as total_exp
+             FROM (
+                SELECT daily_energy_kwh, daily_export_kwh FROM agg_history
+                UNION ALL
+                SELECT daily_energy_kwh, daily_export_kwh FROM live_today
+             ) src`,
             [schoolId || null]
         );
         const monthGen = Number(monthStatsResult.rows[0]?.total_gen) || 0;
@@ -203,9 +238,14 @@ export const dashboardService = {
         const totalLifetimeEnergy = parseFloat(lifetimeEnergyResult.rows[0]?.total_kwh || '0');
         const totalSavings = totalLifetimeEnergy * tariff; // Approximation
 
-        // 5. Projected Payback
+        // 5. Projected Payback & LCOE (Data Driven + Projection)
+        // Logic: Annual Savings = (Capacity * AvgYield * 365 * Tariff). 
+        // We use actual 30-day yield if available (data driven), otherwise fallback to Nameplate * 3.5 (standard yield).
+
+        const totalCapacity = schools.reduce((sum, s) => sum + (Number(s.total_capacity_kwp) || 0), 0);
+
         const avgDailyResult = await query(
-            `SELECT COALESCE(AVG(daily_max), 0) as avg_gen, COALESCE(AVG(export_max), 0) as avg_exp
+            `SELECT COALESCE(AVG(daily_max), 0) as avg_gen, COALESCE(AVG(export_max), 0) as avg_exp, COUNT(*) as data_days
              FROM (
                 SELECT DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')) as day, MAX(t.daily_energy_kwh) as daily_max, MAX(t.daily_export_kwh) as export_max
                 FROM public.telemetry t JOIN public.schools s ON t.school_id = s.id
@@ -216,25 +256,48 @@ export const dashboardService = {
             [schoolId || null]
         );
 
-        const avgDailyGen = Number(avgDailyResult.rows[0]?.avg_gen) || 0;
-        const avgDailyExp = Number(avgDailyResult.rows[0]?.avg_exp) || 0;
+        const dataDays = Number(avgDailyResult.rows[0]?.data_days) || 0;
+        let avgDailyGen = Number(avgDailyResult.rows[0]?.avg_gen) || 0;
+        let avgDailyExp = Number(avgDailyResult.rows[0]?.avg_exp) || 0;
+
+        // If insufficient data (< 3 days), use Nameplate Projection
+        let isProjected = false;
+        if (dataDays < 3 && totalCapacity > 0) {
+            avgDailyGen = totalCapacity * 3.5; // Conservative 3.5 kWh/kWp
+            avgDailyExp = 0; // Assume 100% self-consumption for conservative payback
+            isProjected = true;
+        }
+
         const avgDailySelf = Math.max(0, avgDailyGen - avgDailyExp);
         const dailySavingsProjected = (avgDailySelf * tariff) + (avgDailyExp * exportTariff);
         const annualSavings = dailySavingsProjected * 365;
+
+        // Payback: CAPEX / Annual Savings
         const paybackYears = (totalCapex > 0 && annualSavings > 0) ? totalCapex / annualSavings : 0;
+
+        // LCOE: CAPEX / (Annual Generation * 20 Years)
+        // Using 20 years as standard lifetime
+        const lifetimeProjectedEnergy = (avgDailyGen * 365 * 20);
+        const lcoe = (totalCapex > 0 && lifetimeProjectedEnergy > 0)
+            ? totalCapex / lifetimeProjectedEnergy
+            : 0;
 
         return {
             total_capex_idr: totalCapex,
             total_savings_idr: totalSavings,
             payback_years: parseFloat(paybackYears.toFixed(1)),
             irr_percent: defaultIrr * 100,
-            lcoe_idr_per_kwh: totalLifetimeEnergy > 0 ? totalCapex / totalLifetimeEnergy : 0,
+            lcoe_idr_per_kwh: lcoe,
             payback_progress_percent: totalCapex > 0 ? Math.min((totalSavings / totalCapex) * 100, 100) : 0,
             today_savings_idr: todaySavings,
             month_savings_idr: monthSavings,
             co2_avoided_kg: totalLifetimeEnergy * carbonFactor,
-            trees_planted: (totalLifetimeEnergy * carbonFactor) / 21,
-            car_km_avoided: (totalLifetimeEnergy * carbonFactor) / 0.12
+            trees_planted: (totalLifetimeEnergy * carbonFactor) / 20, // 20kg/year per tree
+            car_km_avoided: (totalLifetimeEnergy * carbonFactor) / 0.12, // 0.12kg/km
+            data_sufficiency: {
+                days_observed: dataDays,
+                is_projected: isProjected
+            }
         };
     },
 

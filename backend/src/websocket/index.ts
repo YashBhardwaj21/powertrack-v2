@@ -1,55 +1,126 @@
+
 import { WebSocketServer, WebSocket } from 'ws';
 import { config } from '../config/index.js';
+import { logger } from '../utils/logger.js';
 
 let wss: WebSocketServer;
-const clients = new Set<WebSocket>();
+
+// O(1) Lookup Maps for Scalability
+// Global set of all clients for admin broadcasts
+const allClients = new Set<WebSocket>();
+
+// Map: SchoolId -> Set of WebSockets (Subscribed to that school)
+const schoolSubscriptions = new Map<string, Set<WebSocket>>();
+
+// Set: Clients subscribed to 'all' schools (e.g., Admin Dashboard)
+const globalSubscribers = new Set<WebSocket>();
 
 export const initWebSocketServer = () => {
     wss = new WebSocketServer({ port: config.wsPort });
 
     wss.on('connection', (ws: WebSocket) => {
-        console.log('✅ New WebSocket client connected');
-        clients.add(ws);
+        logger.debug('✅ New WebSocket client connected');
+        allClients.add(ws);
 
         ws.on('message', (message: string) => {
             try {
                 const data = JSON.parse(message.toString());
-                console.log('Received message:', data);
+                // logger.debug({ type: data.type }, 'Received WS message'); // Reduce noise
 
-                // Handle different message types
                 if (data.type === 'subscribe') {
-                    // Client wants to subscribe to specific school updates
-                    (ws as any).schoolId = data.schoolId;
+                    handleSubscription(ws, data.schoolId);
                 }
             } catch (error) {
-                console.error('WebSocket message error:', error);
+                logger.error({ err: error }, 'WebSocket message error');
             }
         });
 
         ws.on('close', () => {
-            console.log('❌ WebSocket client disconnected');
-            clients.delete(ws);
+            handleDisconnect(ws);
         });
 
         ws.on('error', (error) => {
-            console.error('WebSocket error:', error);
-            clients.delete(ws);
+            logger.error({ err: error }, 'WebSocket error');
+            handleDisconnect(ws);
         });
 
-        // Send initial connection confirmation
-        ws.send(JSON.stringify({
+        // Send confirmation
+        safeSend(ws, {
             type: 'connected',
             message: 'Connected to PowerTrack WebSocket server',
             timestamp: new Date().toISOString(),
-        }));
+        });
     });
 
-    console.log(`🔌 WebSocket server running on port ${config.wsPort}`);
+    logger.info(`🔌 WebSocket server running on port ${config.wsPort}`);
 };
+
+// Helper to handle subscription logic
+const handleSubscription = (ws: WebSocket, schoolId: string) => {
+    // 1. Cleanup previous subscription if exists
+    const previousSchoolId = (ws as any).subscriptionId;
+    if (previousSchoolId) {
+        if (previousSchoolId === 'all') {
+            globalSubscribers.delete(ws);
+        } else {
+            const set = schoolSubscriptions.get(previousSchoolId);
+            if (set) {
+                set.delete(ws);
+                if (set.size === 0) schoolSubscriptions.delete(previousSchoolId);
+            }
+        }
+    }
+
+    // 2. Add new subscription
+    (ws as any).subscriptionId = schoolId; // Tag for reverse lookup
+
+    if (schoolId === 'all') {
+        globalSubscribers.add(ws);
+        logger.debug('Client subscribed to ALL schools');
+    } else if (schoolId) {
+        if (!schoolSubscriptions.has(schoolId)) {
+            schoolSubscriptions.set(schoolId, new Set());
+        }
+        schoolSubscriptions.get(schoolId)!.add(ws);
+        logger.debug({ schoolId }, 'Client subscribed to school');
+    }
+};
+
+// Helper to handle disconnect
+const handleDisconnect = (ws: WebSocket) => {
+    allClients.delete(ws);
+
+    const schoolId = (ws as any).subscriptionId;
+    if (!schoolId) return;
+
+    if (schoolId === 'all') {
+        globalSubscribers.delete(ws);
+    } else {
+        const set = schoolSubscriptions.get(schoolId);
+        if (set) {
+            set.delete(ws);
+            if (set.size === 0) schoolSubscriptions.delete(schoolId);
+        }
+    }
+};
+
+// Helper: Safe Send
+const safeSend = (ws: WebSocket, payload: any) => {
+    if (ws.readyState === WebSocket.OPEN) {
+        try {
+            ws.send(JSON.stringify(payload));
+        } catch (err) {
+            logger.error({ err }, 'Failed to send WS message');
+        }
+    }
+};
+
+// =========================================================
+// BROADCASTING LOGIC (Optimized)
+// =========================================================
 
 const lastBroadcastTimes = new Map<string, number>();
 const BROADCAST_THROTTLE_MS = 2000;
-
 const broadcastTimers = new Map<string, NodeJS.Timeout>();
 
 export const broadcastTelemetryUpdate = (telemetryData: any) => {
@@ -57,18 +128,16 @@ export const broadcastTelemetryUpdate = (telemetryData: any) => {
     const now = Date.now();
     const lastTime = lastBroadcastTimes.get(schoolId) || 0;
 
-    // Clear any pending trailing broadcast
+    // Clear trailing timer
     if (broadcastTimers.has(schoolId)) {
         clearTimeout(broadcastTimers.get(schoolId)!);
         broadcastTimers.delete(schoolId);
     }
 
+    // Throttle check
     if (now - lastTime < BROADCAST_THROTTLE_MS) {
-        // Schedule trailing broadcast
         const delay = BROADCAST_THROTTLE_MS - (now - lastTime);
         const timer = setTimeout(() => {
-            // Re-verify valid WS connection state if needed, but here simple recursive call or direct send
-            // Better to directly send to avoid loop, or set lastTime and send.
             lastBroadcastTimes.set(schoolId, Date.now());
             _sendToSubscribers(schoolId, telemetryData);
             broadcastTimers.delete(schoolId);
@@ -82,48 +151,60 @@ export const broadcastTelemetryUpdate = (telemetryData: any) => {
 };
 
 const _sendToSubscribers = (schoolId: string, data: any) => {
-    const message = JSON.stringify({
+    const payload = {
         type: 'telemetry_update',
         data: data,
         timestamp: new Date().toISOString(),
-    });
+    };
 
-    clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-            const clientSchoolId = (client as any).schoolId;
-            if (!clientSchoolId || clientSchoolId === schoolId || clientSchoolId === 'all') {
-                client.send(message);
-            }
+    // 1. Send to School Subscribers (O(1) Lookup)
+    const schoolSet = schoolSubscriptions.get(schoolId);
+    if (schoolSet) {
+        for (const client of schoolSet) {
+            safeSend(client, payload);
         }
-    });
+    }
+
+    // 2. Send to Global Subscribers (Admins)
+    for (const client of globalSubscribers) {
+        safeSend(client, payload);
+    }
 };
 
 export const broadcastAlert = (alertData: any) => {
-    const message = JSON.stringify({
+    const payload = {
         type: 'alert',
         data: alertData,
         timestamp: new Date().toISOString(),
-    });
+    };
 
-    clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(message);
+    // Alerts are critical, send to specific school subs AND global
+    const schoolId = alertData.school_id;
+
+    if (schoolId) {
+        const schoolSet = schoolSubscriptions.get(schoolId);
+        if (schoolSet) {
+            for (const client of schoolSet) safeSend(client, payload);
         }
-    });
+    }
+
+    for (const client of globalSubscribers) {
+        safeSend(client, payload);
+    }
 };
 
 export const broadcastSchoolCreated = (schoolData: any) => {
-    const message = JSON.stringify({
+    // New schools are interesting to Global Subscribers (Admins/Map)
+    // They are NOT interesting to existing single-school dashboards
+    const payload = {
         type: 'school_created',
         data: schoolData,
         timestamp: new Date().toISOString(),
-    });
+    };
 
-    clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(message);
-        }
-    });
+    for (const client of globalSubscribers) {
+        safeSend(client, payload);
+    }
 };
 
 export { wss };

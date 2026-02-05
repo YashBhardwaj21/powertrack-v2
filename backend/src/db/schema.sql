@@ -107,6 +107,8 @@ CREATE TABLE IF NOT EXISTS public.telemetry (
     ac_current DECIMAL(6, 2),
     total_energy_kwh DECIMAL(12, 2),
     daily_energy_kwh DECIMAL(10, 2),
+    daily_export_kwh DECIMAL(10, 2), -- Added for Net Metering
+    daily_import_kwh DECIMAL(10, 2), -- Added for Net Metering
     irradiance_wm2 DECIMAL(6, 2),
     panel_temp_c DECIMAL(5, 2),
     performance_ratio DECIMAL(5, 4),

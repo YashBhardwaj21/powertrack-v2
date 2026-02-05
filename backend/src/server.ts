@@ -1,10 +1,12 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import pinoHttp from 'pino-http'; // Industry standard request logging
 import { config } from './config/index.js';
 import { pool } from './db/index.js';
 import { initWebSocketServer } from './websocket/index.js';
 import { apiLimiter } from './middleware/rateLimit.js';
+import { logger } from './utils/logger.js'; // Structured logging
 
 // Import routes
 import authRoutes from './routes/auth.js';
@@ -22,6 +24,22 @@ app.use(cors({
     origin: config.frontendUrl,
     credentials: true,
 }));
+
+// Request Logger (Async & Structured)
+app.use(pinoHttp({
+    logger,
+    autoLogging: {
+        ignore: (req) => req.url?.includes('/health') || false, // Ignore health checks to reduce noise
+    },
+    genReqId: (req) => req.headers['x-request-id'] || req.id || crypto.randomUUID(), // Industry standard correlation ID
+    customLogLevel: (req, res, err) => {
+        if (res.statusCode >= 500 || err) return 'error';
+        if (res.statusCode >= 400) return 'warn';
+        return 'info';
+    },
+    // redact: ['req.headers.authorization'] // Handled by main logger
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -61,7 +79,7 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('Error:', err);
+    logger.error({ err }, 'Unhandled Request Error'); // Structured error logging
     res.status(err.status || 500).json({
         error: err.message || 'Internal server error',
     });
@@ -72,33 +90,35 @@ const startServer = async () => {
     try {
         // Test database connection
         await pool.query('SELECT NOW()');
-        console.log('✅ Database connection successful');
+        logger.info('✅ Database connection successful');
 
         // Start Express server
         app.listen(config.port, () => {
-            console.log(`🚀 Server running on port ${config.port}`);
-            console.log(`📡 API available at http://localhost:${config.port}/api/v1`);
-            console.log(`🌍 Environment: ${config.nodeEnv}`);
+            logger.info({
+                port: config.port,
+                env: config.nodeEnv,
+                url: `http://localhost:${config.port}/api/v1`
+            }, '🚀 Server started');
         });
 
         // Start WebSocket server
         initWebSocketServer();
 
     } catch (error) {
-        console.error('❌ Failed to start server:', error);
+        logger.fatal({ err: error }, '❌ Failed to start server');
         process.exit(1);
     }
 };
 
 // Handle graceful shutdown
 process.on('SIGTERM', async () => {
-    console.log('SIGTERM received, shutting down gracefully...');
+    logger.info('SIGTERM received, shutting down gracefully...');
     await pool.end();
     process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-    console.log('SIGINT received, shutting down gracefully...');
+    logger.info('SIGINT received, shutting down gracefully...');
     await pool.end();
     process.exit(0);
 });

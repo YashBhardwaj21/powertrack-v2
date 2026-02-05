@@ -42,6 +42,10 @@ export const telemetryIngestSchema = z.object({
     grid_import_kw: z.number().nonnegative().optional(),
     grid_export_kw: z.number().nonnegative().optional(),
 
+    // Net Metering / Accumulated Fields
+    energy_export_today: z.number().nonnegative().optional(),
+    energy_import_today: z.number().nonnegative().optional(),
+
     weather_condition: z.string().optional()
 }).passthrough(); // Allow extra fields for device-specific logging if needed, but they won't be strictly validated
 

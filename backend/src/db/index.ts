@@ -13,16 +13,18 @@ const poolConfig = {
     keepAlive: true,
 };
 
+import { logger } from '../utils/logger.js';
+
 // Create PostgreSQL connection pool
 export const pool = new Pool(poolConfig);
 
 // Test database connection
 pool.on('connect', () => {
-    console.log('✅ Database connected successfully');
+    logger.debug('✅ Database connected successfully');
 });
 
 pool.on('error', (err) => {
-    console.error('❌ Unexpected database error (trying to recover):', err);
+    logger.error({ err }, '❌ Unexpected database error (trying to recover)');
     // process.exit(-1); // Don't crash on transient connection errors
 });
 
@@ -32,10 +34,13 @@ export const query = async (text: string, params?: any[]) => {
     try {
         const res = await pool.query(text, params);
         const duration = Date.now() - start;
-        console.log('Executed query', { text, duration, rows: res.rowCount });
+        // Optimization: Only log slow queries (>100ms) or in dev mode to reduce noise
+        if (duration > 100 || config.nodeEnv === 'development') {
+            logger.debug({ text, duration, rows: res.rowCount }, 'Executed query');
+        }
         return res;
     } catch (error) {
-        console.error('Database query error:', error);
+        logger.error({ err: error, text }, 'Database query error');
         throw error;
     }
 };

@@ -52,20 +52,30 @@ while ($true) {
         $script:accumulatedEnergy[$API_KEY] += $period_energy
         $daily_kwh = [math]::Round($script:accumulatedEnergy[$API_KEY], 4)
 
+        # ---- Accumulate Export (10 seconds)
+        # Initialize export accumulator if not exists (using global hash for simplicity)
+        if (-not $script:accumulatedExport) { $script:accumulatedExport = @{} }
+        if (-not $script:accumulatedExport.ContainsKey($API_KEY)) { $script:accumulatedExport[$API_KEY] = 0 }
+
+        $period_export = $grid_export * (10 / 3600)
+        $script:accumulatedExport[$API_KEY] += $period_export
+        $daily_export_kwh = [math]::Round($script:accumulatedExport[$API_KEY], 4)
+
         # ---- Payload
         $body = @{
-            power_w           = [math]::Round($solar_kw * 1000, 1)
-            voltage           = 230
-            current_a         = [math]::Round(($solar_kw * 1000) / 230, 2)
-            daily_kwh         = $daily_kwh
-            total_kwh         = [math]::Round(1500 + $daily_kwh, 2)
-            load_kw           = $load_kw
-            grid_import_kw    = [math]::Round($grid_import, 2)
-            grid_export_kw    = [math]::Round($grid_export, 2)
-            irradiance_wm2    = $irradiance
-            temp_c            = $temp
-            weather_condition = "sunny"
-            ts                = [int][DateTimeOffset]::Now.ToUnixTimeSeconds()
+            power_w             = [math]::Round($solar_kw * 1000, 1)
+            voltage             = 230
+            current_a           = [math]::Round(($solar_kw * 1000) / 230, 2)
+            daily_kwh           = $daily_kwh
+            total_kwh           = [math]::Round($daily_kwh, 2)
+            energy_export_today = $daily_export_kwh
+            load_kw             = $load_kw
+            grid_import_kw      = [math]::Round($grid_import, 2)
+            grid_export_kw      = [math]::Round($grid_export, 2)
+            irradiance_wm2      = $irradiance
+            temp_c              = $temp
+            weather_condition   = "sunny"
+            ts                  = [int][DateTimeOffset]::Now.ToUnixTimeSeconds()
         } | ConvertTo-Json -Compress
 
         # ---- Dynamic Auth Method Selection

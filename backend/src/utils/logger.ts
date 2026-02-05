@@ -1,30 +1,47 @@
-// Simple Structured Logger
-// Fix 19: Structured logging for key operations
 
-const getTimestamp = () => new Date().toISOString();
+import pino from 'pino';
+import { config } from '../config/index.js';
 
-const formatMessage = (level: string, message: string, context: Record<string, any> = {}) => {
-    return JSON.stringify({
-        level,
-        timestamp: getTimestamp(),
-        message,
-        ...context
-    });
+// Base configuration
+const baseConfig = {
+    level: config.nodeEnv === 'development' ? 'debug' : 'info',
+    base: {
+        env: config.nodeEnv,
+        service: 'powertrack-backend',
+    },
+    redact: {
+        paths: ['req.headers.authorization', 'req.body.password', 'req.body.api_key'],
+        remove: true,
+    },
+    // Standard timestamp format
+    timestamp: pino.stdTimeFunctions.isoTime,
 };
 
-export const logger = {
-    info: (message: string, context?: Record<string, any>) => {
-        console.log(formatMessage('INFO', message, context));
-    },
-    warn: (message: string, context?: Record<string, any>) => {
-        console.warn(formatMessage('WARN', message, context));
-    },
-    error: (message: string, context?: Record<string, any>) => {
-        console.error(formatMessage('ERROR', message, context));
-    },
-    debug: (message: string, context?: Record<string, any>) => {
-        if (process.env.NODE_ENV !== 'production') {
-            console.debug(formatMessage('DEBUG', message, context));
-        }
-    }
+// Conditional Logger Creation
+// In Dev: We use 'transport' option for pino-pretty (runs in worker thread)
+// In Prod: We use a high-performance SonicBoom stream (passed as 2nd arg)
+let loggerInstance;
+
+if (config.nodeEnv === 'development') {
+    loggerInstance = pino({
+        ...baseConfig,
+        transport: {
+            target: 'pino-pretty',
+            options: {
+                colorize: true,
+                translateTime: 'SYS:standard',
+                ignore: 'pid,hostname',
+            },
+        },
+    });
+} else {
+    const stream = pino.destination({ sync: false, minLength: 4096 });
+    loggerInstance = pino(baseConfig, stream);
+}
+
+export const logger = loggerInstance;
+
+// Helper for consistency
+export const logError = (msg: string, error: any, context: object = {}) => {
+    logger.error({ ...context, err: error }, msg);
 };

@@ -8,43 +8,10 @@ interface EnvironmentalImpactCardProps {
 }
 
 export const EnvironmentalImpactCard: React.FC<EnvironmentalImpactCardProps> = ({ data }) => {
-    // Total Energy (Lifetime) -> CO2
-    // If stats available use that, else calc from estimated total energy
-    // 1 kWh ~ 0.85 kg CO2 (Coal heavy grid) or 0.5 (Mixed). 
-    // Types has `metadata.carbon_intensity_kg_per_kwh`.
-
-    const co2Factor = data.metadata.carbon_intensity_kg_per_kwh || 0.85;
-
-    // Aggregating lifetime energy:
-    // If we rely on today+month, we miss history. 
-    // Ideally backend gives `lifetime_energy_kwh` in some stats object.
-    // Let's use `financial_stats.total_savings_idr` / rate to reverse engineer? No.
-    // Let's check `leaderboard_stats` sum? 
-    // For now, let's use a sum of schools' `total_energy_kwh` (from telemetry aggregation?).
-    // Or just simple: `today` * 30 * 12 * 2 (dummy for now if missing)
-
-    // Better: Sum of all `schools` stats? In `data.schools` we just have metadata.
-    // Let's use `daily_historical` sum (Rolling 30 days) and multiply by random factor for "Lifetime" demo?
-    // Actually `financial_stats` usually implies lifetime context. 
-
-    // Let's just calculate logic based on `data.daily_historical` sum (30 days) * 24 months (Estimate)
-    // Or check if `storage_stats` has points?
-
-    // OK, let's just use 30-day sum for "Recent Impact" and project lifetime?
-    // Or just "Impact This Month". The prompt says "Lifetime CO2 Offset".
-
-    // Fallback logic for visual demo:
-    const monthEnergy = data.daily_historical.reduce((sum, d) => sum + d.total_energy_kwh, 0);
-    const co2AvoidedMonth = monthEnergy * co2Factor;
-    const co2AvoidedLifetime = co2AvoidedMonth * 12 * 2.5; // Dummy 2.5 years
-
-    // Translations
-    // Tree: 1 tree absorbs ~20kg CO2/year. Lifetime (20yrs) ~400kg? 
-    // "Equivalent to trees planted" usually means "offset in 1 year". So ~20kg per tree.
-    const treesPlanted = Math.floor(co2AvoidedLifetime / 20);
-
-    // Car: 1 km ~ 0.2 kg CO2.
-    const carKm = Math.floor(co2AvoidedLifetime / 0.2);
+    // Use backend-provided values (which are now consistent with DB)
+    const co2AvoidedLifetime = data.financial_stats?.co2_avoided_kg || 0;
+    const treesPlanted = Math.floor(data.financial_stats?.trees_planted || 0);
+    const carKm = Math.floor(data.financial_stats?.car_km_avoided || 0);
 
     return (
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-full flex flex-col">

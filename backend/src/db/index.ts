@@ -7,9 +7,9 @@ const { Pool } = pg;
 const poolConfig = {
     connectionString: config.databaseUrl,
     ssl: config.databaseUrl?.includes('localhost') ? false : { rejectUnauthorized: false },
-    max: 100, // Matching simulation scale (1 connection per concurrent request)
+    max: 20, // Reduced from 100 to prevent starvation
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000, // reduced to fail fast if full
+    connectionTimeoutMillis: 30000, // Increased to 30s to handle slow starts
     keepAlive: true,
 };
 

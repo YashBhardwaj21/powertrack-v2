@@ -13,25 +13,70 @@ declare global {
     }
 }
 
-export const authenticateToken = async (req: Request, res: Response, next: NextFunction) => {
-    const authHeader = req.headers['authorization'];
+// 🚀 Optimization: Simple In-Memory Cache for User Sessions
+// Prevents hitting the DB on every single request for the same user.
+import { BUSINESS_LOGIC } from '../config/constants.js';
 
-    // 🛡️ CRASH IMMUNITY (User Requirement 2)
+class UserCache {
+    private cache = new Map<string, { user: any; expiry: number }>();
+    private readonly TTL_MS = BUSINESS_LOGIC.USER_SESSION_TTL_MS;
+
+    get(userId: string) {
+        const item = this.cache.get(userId);
+        if (!item) return null;
+        if (Date.now() > item.expiry) {
+            this.cache.delete(userId);
+            return null;
+        }
+        return item.user;
+    }
+
+    set(userId: string, user: any) {
+        this.cache.set(userId, {
+            user,
+            expiry: Date.now() + this.TTL_MS
+        });
+
+        // Prevent memory leak: clear old keys if too big
+        if (this.cache.size > 1000) {
+            const firstKey = this.cache.keys().next().value;
+            this.cache.delete(firstKey);
+        }
+    }
+
+    clear(userId: string) {
+        this.cache.delete(userId);
+    }
+}
+
+const userSessionCache = new UserCache();
+
+export const authenticateToken = async (req: Request, res: Response, next: NextFunction) => {
+    const authHeader = req.headers['authorization'] as string;
+
     if (!authHeader || authHeader === 'Bearer undefined' || authHeader === 'Bearer null') {
         return res.status(401).json({ error: 'Access token required' });
     }
 
-    const token = authHeader.split(' ')[1]; // Bearer TOKEN
+    const token = authHeader.split(' ')[1];
 
     if (!token || token === 'undefined' || token === 'null') {
         return res.status(401).json({ error: 'Access token required' });
     }
 
     try {
-        // 1. Verify Signature
+        // 1. Verify Signature (Fast CPU op)
         const decoded = jwt.verify(token, config.jwtSecret) as JWTPayload;
 
-        // 2. Fetch Fresh Data (Source of Truth) to prevent stale claims
+        // 2. Check Cache First (Zero I/O)
+        const cachedUser = userSessionCache.get(decoded.userId);
+        if (cachedUser) {
+            req.user = cachedUser;
+            (req as any).school_id = cachedUser.schoolId; // Back-compat
+            return next();
+        }
+
+        // 3. Cache Miss: Fetch User from DB
         const userResult = await query(
             'SELECT id, email, role, school_id FROM public.users WHERE id = $1',
             [decoded.userId]
@@ -43,13 +88,15 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
 
         const freshUser = userResult.rows[0];
 
-        // 3. Attach Fresh Data to Request
+        // 4. Transform & Cache Result
         req.user = {
             userId: freshUser.id,
             email: freshUser.email,
             role: freshUser.role,
             schoolId: freshUser.school_id
         };
+
+        userSessionCache.set(decoded.userId, req.user);
 
         // Compatibility for routes expecting user.school_id
         (req.user as any).school_id = freshUser.school_id;

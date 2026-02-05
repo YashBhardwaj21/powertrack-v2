@@ -18,8 +18,18 @@ Write-Host "Starting Simulation for defined schools..." -ForegroundColor Cyan
 
 while ($true) {
 
+    # Initialize accumulators if not exists
+    if (-not $script:accumulatedEnergy) {
+        $script:accumulatedEnergy = @{}
+    }
+
     for ($i = 0; $i -lt $API_KEYS.Count; $i++) {
         $API_KEY = $API_KEYS[$i]
+        
+        # Initialize school accumulator
+        if (-not $script:accumulatedEnergy.ContainsKey($API_KEY)) {
+            $script:accumulatedEnergy[$API_KEY] = 0
+        }
 
         # ---- Independent solar per school
         $solar_kw = $baseSolarKw + (Get-Random -Minimum -0.8 -Maximum 0.8)
@@ -36,14 +46,19 @@ while ($true) {
         # ---- Environment
         $irradiance = [math]::Round($solar_kw * 220, 1)
         $temp = [math]::Round(26 + ($solar_kw * 3), 1)
+        
+        # ---- Accumulate Energy (10 seconds)
+        $period_energy = $solar_kw * (10 / 3600)
+        $script:accumulatedEnergy[$API_KEY] += $period_energy
+        $daily_kwh = [math]::Round($script:accumulatedEnergy[$API_KEY], 4)
 
         # ---- Payload
         $body = @{
             power_w           = [math]::Round($solar_kw * 1000, 1)
             voltage           = 230
             current_a         = [math]::Round(($solar_kw * 1000) / 230, 2)
-            daily_kwh         = [math]::Round($solar_kw * (10 / 3600), 4)
-            total_kwh         = 1500 + (Get-Random -Minimum 0 -Maximum 250)
+            daily_kwh         = $daily_kwh
+            total_kwh         = [math]::Round(1500 + $daily_kwh, 2)
             load_kw           = $load_kw
             grid_import_kw    = [math]::Round($grid_import, 2)
             grid_export_kw    = [math]::Round($grid_export, 2)

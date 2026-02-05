@@ -113,7 +113,7 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
             setSchoolId(school.id);
 
             // Save token immediately
-            if (token) localStorage.setItem('auth_token', token);
+            if (token) sessionStorage.setItem('auth_token', token);
             if (updatedUser) {
                 setCommittedUser(updatedUser);
             }

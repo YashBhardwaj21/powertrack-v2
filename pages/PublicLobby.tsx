@@ -7,6 +7,7 @@ import { AppFooter } from '../components/AppFooter';
 import { PublicEnergyChart } from '../components/PublicEnergyChart';
 import { PublicMap } from '../components/PublicMap';
 
+
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3002';
 
 export const PublicLobby: React.FC = () => {
@@ -198,6 +199,7 @@ export const PublicLobby: React.FC = () => {
                                                 <th className="px-8 py-5">Institution</th>
                                                 <th className="px-8 py-5">Status</th>
                                                 <th className="px-8 py-5 text-right">Yield (Total)</th>
+                                                <th className="px-8 py-5 text-right">Specific Yield</th>
                                                 <th className="px-8 py-5 text-right">CO₂ Offset</th>
                                             </tr>
                                         </thead>
@@ -255,6 +257,14 @@ export const PublicLobby: React.FC = () => {
                                                                         <span className="text-slate-400 ml-2 text-xs font-bold uppercase">kWh</span>
                                                                     </span>
                                                                 </td>
+                                                                <td className="px-8 py-6 font-mono text-slate-700 font-bold text-right text-lg">
+                                                                    <span>
+                                                                        {Number(item.total_capacity_kwp) > 0
+                                                                            ? (Number(item.today_energy_kwh || 0) / Number(item.total_capacity_kwp)).toFixed(2)
+                                                                            : '0.00'}
+                                                                        <span className="text-slate-400 ml-2 text-xs font-bold uppercase">kWh/kWp</span>
+                                                                    </span>
+                                                                </td>
                                                                 <td className="px-8 py-6 font-mono text-emerald-600 font-bold text-right text-lg">
                                                                     <span>
                                                                         {(Number(item.total_energy_kwh || 0) * (metadata?.carbon_intensity_kg_per_kwh || 0.85)).toLocaleString(undefined, {
@@ -272,6 +282,8 @@ export const PublicLobby: React.FC = () => {
                                     </table>
                                 </div>
                             </div>
+
+
 
 
                             {/* Network Power Graph - Below Leaderboard */}

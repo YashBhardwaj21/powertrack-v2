@@ -47,7 +47,7 @@ const App: React.FC = () => {
     const [loading, setLoading] = useState(true);
 
     const refreshUser = async () => {
-        const token = localStorage.getItem('auth_token');
+        const token = sessionStorage.getItem('auth_token');
         if (token) {
             try {
                 const response = await fetch(`${API_BASE}/auth/verify`, {
@@ -61,17 +61,17 @@ const App: React.FC = () => {
 
                     // Rotate token if provided (Essential for permission updates)
                     if (data.token) {
-                        localStorage.setItem('auth_token', data.token);
+                        sessionStorage.setItem('auth_token', data.token);
                     }
 
                     setUser(data.user);
                 } else {
-                    localStorage.removeItem('auth_token');
+                    sessionStorage.removeItem('auth_token');
                     setUser(null);
                 }
             } catch (error) {
                 console.error('Token verification failed:', error);
-                localStorage.removeItem('auth_token');
+                sessionStorage.removeItem('auth_token');
                 setUser(null);
             }
         }
@@ -123,7 +123,7 @@ const App: React.FC = () => {
             }
 
             const data = await response.json();
-            localStorage.setItem('auth_token', data.token);
+            sessionStorage.setItem('auth_token', data.token);
             setUser(data.user);
         } catch (error: any) {
             console.error('Login fetch error:', error);
@@ -151,7 +151,7 @@ const App: React.FC = () => {
             }
 
             const data = await response.json();
-            localStorage.setItem('auth_token', data.token);
+            sessionStorage.setItem('auth_token', data.token);
             setUser(data.user);
         } catch (error: any) {
             console.error('Registration fetch error:', error);
@@ -165,7 +165,7 @@ const App: React.FC = () => {
 
     const logout = async () => {
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = sessionStorage.getItem('auth_token');
             if (token) {
                 await fetch(`${API_BASE}/auth/logout`, {
                     method: 'POST',
@@ -177,7 +177,7 @@ const App: React.FC = () => {
         } catch (error) {
             console.error('Logout error:', error);
         } finally {
-            localStorage.removeItem('auth_token');
+            sessionStorage.removeItem('auth_token');
             setUser(null);
         }
     };

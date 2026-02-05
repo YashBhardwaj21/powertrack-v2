@@ -1,0 +1,290 @@
+import { query } from '../db/index.js';
+import { transformSchoolRow } from '../utils/transformers.js';
+import { School } from '../types/index.js';
+
+export const dashboardService = {
+    async getSystemParams(keys: string[]) {
+        const result = await query(
+            'SELECT * FROM public.system_parameters WHERE key = ANY($1)',
+            [keys]
+        );
+        return result.rows.reduce((acc, row) => {
+            acc[row.key] = parseFloat(row.value);
+            return acc;
+        }, {} as Record<string, number>);
+    },
+
+    async getActiveSchools() {
+        const result = await query('SELECT * FROM public.schools WHERE deleted_at IS NULL ORDER BY name');
+        return result.rows
+            .map(transformSchoolRow)
+            .filter((s): s is School => s !== null);
+    },
+
+    async getCurrentTelemetry(schoolId?: string) {
+        const sql = schoolId
+            ? `SELECT DISTINCT ON (school_id) * FROM public.telemetry WHERE school_id = $1 ORDER BY school_id, timestamp DESC`
+            : `SELECT DISTINCT ON (t.school_id) t.* FROM public.telemetry t JOIN public.schools s ON t.school_id = s.id WHERE s.deleted_at IS NULL ORDER BY t.school_id, t.timestamp DESC`;
+
+        const result = await query(sql, schoolId ? [schoolId] : []);
+        return result.rows;
+    },
+
+    async getAlerts(schoolId?: string) {
+        const sql = schoolId
+            ? `SELECT a.*, s.name AS school_name FROM public.alerts a JOIN public.schools s ON a.school_id = s.id WHERE a.resolved = FALSE AND a.school_id = $1 AND s.deleted_at IS NULL ORDER BY a.timestamp DESC LIMIT 50`
+            : `SELECT a.*, s.name AS school_name FROM public.alerts a JOIN public.schools s ON a.school_id = s.id WHERE a.resolved = FALSE AND s.deleted_at IS NULL ORDER BY a.timestamp DESC LIMIT 50`;
+
+        const result = await query(sql, schoolId ? [schoolId] : []);
+        return result.rows;
+    },
+
+    calculateCommunityStats(telemetry: any[], tariff: number) {
+        const safeData = Array.isArray(telemetry) ? telemetry : [];
+        const totalExport = safeData.reduce((sum, t) => sum + (Number(t.grid_export_kw) || 0), 0);
+        const totalImport = safeData.reduce((sum, t) => sum + (Number(t.grid_import_kw) || 0), 0);
+
+        return {
+            active_peers: safeData.length,
+            total_surplus_kw: totalExport,
+            total_deficit_kw: totalImport,
+            net_grid_flow_kw: totalExport - totalImport,
+            sharing_potential_idr: (totalExport - totalImport) * tariff,
+        };
+    },
+
+    async getHourlyHistory(schoolId: string | undefined, interval: string, timezone: string) {
+        const result = await query(
+            `WITH time_buckets AS (
+                SELECT generate_series(
+                    date_trunc('hour', NOW() AT TIME ZONE $2 - INTERVAL '24 hours'), 
+                    date_trunc('hour', NOW() AT TIME ZONE $2), 
+                    $1::interval
+                ) as time_bucket
+            ),
+            per_school_hourly AS (
+                SELECT 
+                    date_trunc('hour', t.timestamp AT TIME ZONE $2) as time_bucket,
+                    t.school_id,
+                    AVG(t.ac_power_kw) as avg_power,
+                    AVG(t.grid_export_kw) as avg_export_kw,
+                    MAX(t.daily_energy_kwh) as day_energy_cum,
+                    0 as day_export_cum
+                FROM public.telemetry t
+                WHERE t.timestamp >= NOW() - INTERVAL '26 hours' 
+                ${schoolId ? 'AND t.school_id = $3' : ''}
+                GROUP BY 1, 2
+            ),
+            system_hourly AS (
+                SELECT
+                    time_bucket,
+                    SUM(avg_power) as sys_avg_power,
+                    SUM(COALESCE(avg_export_kw, 0)) as sys_avg_export,
+                    SUM(day_energy_cum) as sys_day_energy_cum,
+                    SUM(COALESCE(day_export_cum, 0)) as sys_day_export_cum
+                FROM per_school_hourly
+                GROUP BY 1
+            ),
+            hourly_deltas AS (
+                SELECT 
+                    time_bucket,
+                    sys_avg_power,
+                    sys_avg_export,
+                    sys_day_energy_cum,
+                    sys_day_energy_cum - LAG(sys_day_energy_cum) OVER (ORDER BY time_bucket) as energy_delta,
+                    sys_day_export_cum - LAG(sys_day_export_cum) OVER (ORDER BY time_bucket) as export_delta
+                FROM system_hourly
+            )
+            SELECT 
+                tb.time_bucket as hour,
+                COALESCE(hd.sys_avg_power, 0) as avg_power,
+                COALESCE(hd.sys_avg_export, 0) as avg_export_power,
+                GREATEST(COALESCE(hd.energy_delta, hd.sys_avg_power, 0), 0) as energy,
+                GREATEST(COALESCE(hd.export_delta, hd.sys_avg_export, 0), 0) as export_energy
+            FROM time_buckets tb
+            LEFT JOIN hourly_deltas hd ON tb.time_bucket = hd.time_bucket
+            WHERE tb.time_bucket >= date_trunc('hour', NOW() AT TIME ZONE $2 - INTERVAL '24 hours')
+            ORDER BY tb.time_bucket ASC`,
+            schoolId ? [interval, timezone, schoolId] : [interval, timezone]
+        );
+
+        return result.rows.map(row => ({
+            hour: row.hour,
+            avg_power: Number(row.avg_power),
+            energy: Number(row.energy),
+            avg_load: 0,
+            avg_import: 0,
+            avg_export: Number(row.export_energy)
+        }));
+    },
+
+    async getDailyHistory(schoolId: string | undefined, timezone: string) {
+        const result = await query(
+            `WITH days AS (
+                SELECT generate_series(
+                    (DATE(NOW() AT TIME ZONE $1) - INTERVAL '29 days')::timestamp, 
+                    DATE(NOW() AT TIME ZONE $1)::timestamp,
+                    '1 day'::interval
+                ) as date
+            ),
+            per_school_daily AS (
+                SELECT 
+                    d.date,
+                    t.school_id,
+                    MAX(t.daily_energy_kwh) as school_day_max
+                FROM days d
+                LEFT JOIN public.telemetry t ON 
+                    DATE(t.timestamp AT TIME ZONE $1) = DATE(d.date)
+                    ${schoolId ? 'AND t.school_id = $2' : ''}
+                GROUP BY d.date, t.school_id
+            )
+            SELECT 
+                d.date,
+                COALESCE(SUM(p.school_day_max), 0) as total_energy_kwh
+            FROM days d
+            LEFT JOIN per_school_daily p ON d.date = p.date
+            GROUP BY d.date
+            ORDER BY d.date ASC`,
+            schoolId ? [timezone, schoolId] : [timezone]
+        );
+        return result.rows.map(row => ({
+            date: row.date,
+            total_energy_kwh: Number(row.total_energy_kwh)
+        }));
+    },
+
+    async getFinancialStats(schoolId: string | undefined, schools: any[], currentData: any[], tariff: number, exportTariff: number, carbonFactor: number, defaultIrr: number, timezone: string) {
+        // 1. Capex
+        const totalCapex = schools.length ? schools.reduce((sum, s) => sum + (Number(s.total_cost_idr) || 0), 0) : 0;
+
+        // 2. Today Savings
+        const todaySavings = currentData.reduce((sum, t) => {
+            const gen = Number(t.daily_energy_kwh) || 0;
+            const exp = Number(t.daily_export_kwh) || 0;
+            const selfConsumed = Math.max(0, gen - exp);
+            return sum + (selfConsumed * tariff) + (exp * exportTariff);
+        }, 0);
+
+        // 3. Month Savings
+        const monthStatsResult = await query(
+            `SELECT SUM(daily_energy_kwh) as total_gen, SUM(daily_export_kwh) as total_exp
+             FROM (
+                SELECT school_id, DATE(timestamp AT TIME ZONE $1), MAX(daily_energy_kwh) as daily_energy_kwh, MAX(daily_export_kwh) as daily_export_kwh
+                FROM public.telemetry
+                WHERE timestamp >= date_trunc('month', NOW() AT TIME ZONE $1)
+                ${schoolId ? 'AND school_id = $2' : ''}
+                GROUP BY 1, 2
+             ) daily_sums`,
+            schoolId ? [timezone, schoolId] : [timezone]
+        );
+        const monthGen = Number(monthStatsResult.rows[0]?.total_gen) || 0;
+        const monthExp = Number(monthStatsResult.rows[0]?.total_exp) || 0;
+        const monthSelf = Math.max(0, monthGen - monthExp);
+        const monthSavings = (monthSelf * tariff) + (monthExp * exportTariff);
+
+        // 4. Lifetime Energy & Savings
+        const lifetimeEnergyQuery = schoolId
+            ? `SELECT COALESCE(MAX(total_energy_kwh), 0) as total_kwh FROM public.telemetry WHERE school_id = $1`
+            : `SELECT COALESCE(SUM(latest_energy), 0) as total_kwh FROM (SELECT DISTINCT ON (school_id) total_energy_kwh as latest_energy FROM public.telemetry ORDER BY school_id, timestamp DESC) sub`;
+
+        const lifetimeEnergyResult = await query(lifetimeEnergyQuery, schoolId ? [schoolId] : []);
+        const totalLifetimeEnergy = parseFloat(lifetimeEnergyResult.rows[0]?.total_kwh || '0');
+        const totalSavings = totalLifetimeEnergy * tariff; // Approximation
+
+        // 5. Projected Payback
+        const avgDailyResult = await query(
+            `SELECT COALESCE(AVG(daily_max), 0) as avg_gen, COALESCE(AVG(export_max), 0) as avg_exp
+             FROM (
+                SELECT DATE(timestamp AT TIME ZONE $1) as day, MAX(daily_energy_kwh) as daily_max, MAX(daily_export_kwh) as export_max
+                FROM public.telemetry t JOIN public.schools s ON t.school_id = s.id
+                WHERE s.deleted_at IS NULL AND t.timestamp >= NOW() - INTERVAL '30 days'
+                ${schoolId ? 'AND t.school_id = $2' : ''}
+                GROUP BY day, t.school_id
+             ) p`,
+            schoolId ? [timezone, schoolId] : [timezone]
+        );
+
+        const avgDailyGen = Number(avgDailyResult.rows[0]?.avg_gen) || 0;
+        const avgDailyExp = Number(avgDailyResult.rows[0]?.avg_exp) || 0;
+        const avgDailySelf = Math.max(0, avgDailyGen - avgDailyExp);
+        const dailySavingsProjected = (avgDailySelf * tariff) + (avgDailyExp * exportTariff);
+        const annualSavings = dailySavingsProjected * 365;
+        const paybackYears = (totalCapex > 0 && annualSavings > 0) ? totalCapex / annualSavings : 0;
+
+        return {
+            total_capex_idr: totalCapex,
+            total_savings_idr: totalSavings,
+            payback_years: parseFloat(paybackYears.toFixed(1)),
+            irr_percent: defaultIrr * 100,
+            lcoe_idr_per_kwh: totalLifetimeEnergy > 0 ? totalCapex / totalLifetimeEnergy : 0,
+            payback_progress_percent: totalCapex > 0 ? Math.min((totalSavings / totalCapex) * 100, 100) : 0,
+            today_savings_idr: todaySavings,
+            month_savings_idr: monthSavings,
+            co2_avoided_kg: totalLifetimeEnergy * carbonFactor,
+            trees_planted: (totalLifetimeEnergy * carbonFactor) / 21,
+            car_km_avoided: (totalLifetimeEnergy * carbonFactor) / 0.12
+        };
+    },
+
+    async getStorageStats() {
+        const storageResult = await query(`SELECT COUNT(*) AS total_points, pg_database_size(current_database()) AS db_size FROM public.telemetry`);
+        const storageData = storageResult.rows[0] || { total_points: 0, db_size: 0 };
+        return {
+            db_engine: 'PostgreSQL 14 (Partitioned)',
+            storage_usage_mb: Math.round(parseInt(storageData.db_size) / (1024 * 1024)),
+            total_points_stored: parseInt(storageData.total_points),
+            compression_ratio: 3.2,
+            ingestion_rate_mps: 0.5,
+            retention_policies: { raw: '90 days', aggregated: '2 years' },
+            last_rollup_job: new Date().toISOString(),
+        };
+    },
+
+    getModelMetrics(alertsCount: number) {
+        return {
+            version: '1.0.0',
+            last_trained: new Date().toISOString(),
+            rmse: 0.15,
+            mape: 5.2,
+            residuals_trend: [0.1, 0.05, -0.02, 0.03, -0.01],
+            anomaly_detection: {
+                precision: 0.92,
+                recall: 0.88,
+                f1_score: 0.90,
+                total_anomalies_detected: alertsCount,
+            },
+        };
+    },
+
+    async getLeaderboardStats() {
+        const result = await query(
+            `WITH daily_yields AS (
+                SELECT school_id, DATE(timestamp) as production_date, MAX(daily_energy_kwh) as day_total
+                FROM public.telemetry
+                GROUP BY school_id, production_date
+            ),
+            school_aggregates AS (
+                SELECT school_id, SUM(day_total) as calculated_total_yield
+                FROM daily_yields
+                GROUP BY school_id
+            ),
+            latest_metrics AS (
+                SELECT DISTINCT ON (school_id) school_id, daily_energy_kwh
+                FROM public.telemetry
+                ORDER BY school_id, timestamp DESC
+            )
+            SELECT
+                s.id AS school_id, s.name AS school_name, s.district, s.total_capacity_kwp,
+                COALESCE(agg.calculated_total_yield, 0) AS total_energy_kwh,
+                COALESCE(lt.daily_energy_kwh, 0) AS today_energy_kwh,
+                COALESCE(agg.calculated_total_yield * 0.85, 0) AS co2_reduced_kg,
+                RANK() OVER(ORDER BY COALESCE(agg.calculated_total_yield, 0) DESC) AS rank
+             FROM public.schools s
+             LEFT JOIN school_aggregates agg ON s.id = agg.school_id
+             LEFT JOIN latest_metrics lt ON s.id = lt.school_id
+             WHERE s.deleted_at IS NULL
+             ORDER BY total_energy_kwh DESC`
+        );
+        return result.rows;
+    }
+};

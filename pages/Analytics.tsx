@@ -33,12 +33,10 @@ export const Analytics: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-4 bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
-                    <div className="flex items-center gap-2 px-3">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Scope:</span>
-                        <select className="text-xs font-bold border-none focus:ring-0 bg-transparent py-1 pr-8 text-slate-700">
-                            <option>All Representative Schools</option>
-                            {data.schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
+                    <div className="px-3 py-1">
+                        <span className="text-xs font-bold text-slate-500">
+                            {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                        </span>
                     </div>
                 </div>
             </header>

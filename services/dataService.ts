@@ -18,7 +18,7 @@ export class ApiError extends Error {
 }
 
 // Helper to get auth token
-const getAuthToken = () => localStorage.getItem('auth_token');
+const getAuthToken = () => sessionStorage.getItem('auth_token');
 
 // Helper to make authenticated requests with Retry
 const fetchWithAuth = async (url: string, options: RequestInit = {}, retries = 3, backoff = 500): Promise<Response> => {
@@ -82,7 +82,7 @@ export const fetchDashboardData = async (schoolId?: string, granularity: '1h' | 
 
 export const fetchPublicLeaderboard = async (): Promise<{ leaderboard: any[], metadata: any } | null> => {
     try {
-        const response = await fetch(`${API_BASE}/dashboard/leaderboard`);
+        const response = await fetch(`${API_BASE}/dashboard/leaderboard?_t=${new Date().getTime()}`);
 
         if (!response.ok) {
             console.error('Failed to fetch leaderboard');

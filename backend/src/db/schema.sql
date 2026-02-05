@@ -92,6 +92,7 @@ DROP TABLE IF EXISTS public.telemetry CASCADE;
 CREATE TABLE public.telemetry (
     school_id UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    server_at TIMESTAMPTZ DEFAULT NOW(),
     ac_power_kw DECIMAL(10, 3),
     ac_voltage DECIMAL(6, 2),
     ac_current DECIMAL(6, 2),

@@ -12,7 +12,7 @@ import { useToast } from '../context/ToastContext';
 
 // Helper for archiving (Move to dataService in production)
 const archiveSchool = async (id: string) => {
-    const token = localStorage.getItem('auth_token'); // FIX: Was sessionStorage, should be localStorage
+    const token = sessionStorage.getItem('auth_token');
     const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api/v1';
     const res = await fetch(`${API_BASE}/schools/${id}`, {
         method: 'DELETE',

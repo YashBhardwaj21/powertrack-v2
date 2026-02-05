@@ -104,7 +104,7 @@ export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data }) => {
         grid: {
             top: 30,
             right: 20,
-            bottom: 20,
+            bottom: 50, // Increased for dataZoom slider
             left: 20,
             containLabel: true
         },
@@ -161,6 +161,23 @@ export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data }) => {
                     color: 'rgba(241, 245, 249, 0.5)',
                     borderRadius: [4, 4, 0, 0]
                 }
+            }
+        ],
+        dataZoom: [
+            {
+                type: 'slider',
+                show: true,
+                xAxisIndex: [0],
+                start: 0,
+                end: 100,
+                bottom: 0,
+                height: 20
+            },
+            {
+                type: 'inside',
+                xAxisIndex: [0],
+                start: 0,
+                end: 100
             }
         ]
     };

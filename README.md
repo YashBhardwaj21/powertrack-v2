@@ -1,333 +1,130 @@
 # PowerTrack v2 - Solar Energy Monitoring System
 
-A complete full-stack application for monitoring solar energy generation across West Java schools, featuring real-time telemetry, public leaderboards, and administrative dashboards.
+PowerTrack v2 is a comprehensive solar energy monitoring platform designed for educational and government institutions in West Java. It provides real-time telemetry ingestion, interactive public leaderboards, and administrative dashboards for maintaining solar infrastructure.
 
-## 🚀 Features
+## System Architecture
 
-### Frontend
-- ✅ **Public Leaderboard** - Community solar energy rankings
-- ✅ **Real-time Dashboard** - Live telemetry from solar installations
-- ✅ **Authentication** - Secure JWT-based login system
-- ✅ **WebSocket Updates** - Real-time data streaming
-- ✅ **Responsive Design** - TailwindCSS-powered UI
-- ✅ **Interactive Maps** - Leaflet integration for school locations
-- ✅ **Analytics Charts** - Recharts for data visualization
+### Frontend Application
+- **Framework**: React 18 with TypeScript and Vite 5
+- **UI Toolkit**: TailwindCSS 3 for responsive design
+- **Visualization**: Recharts and ECharts for high-performance data plotting
+- **Mapping**: Leaflet interactive maps for geospatial visualization
+- **State Management**: React Context API for authentication and WebSocket data
+- **Routing**: React Router 6 with protected route guards
 
-### Backend
-- ✅ **RESTful API** - Complete Express.js API server
-- ✅ **PostgreSQL Database** - Supabase-hosted with proper schema
-- ✅ **JWT Authentication** - Secure user authentication
-- ✅ **WebSocket Server** - Real-time telemetry broadcasting
-- ✅ **Hardware Integration** - API key authentication for ESP32 devices
-- ✅ **Input Validation** - Express-validator on all endpoints
-- ✅ **Security** - Helmet, CORS, rate limiting
+### Backend Services
+- **Runtime**: Node.js 20+ with Express 4
+- **Database**: PostgreSQL 14 (Supabase) with connection pooling
+- **Real-time**: Custom WebSocket server (`ws` library) for sub-second telemetry broadcasting
+- **Authentication**: 
+  - **User**: JWT (JSON Web Tokens) with secure HTTP headers
+  - **Hardware**: API Key validation with hashed storage
+- **Validation**: Zod and Express-Validator for strict request schema enforcement
 
-## 📁 Project Structure
+## Key Features
 
-```
-powertrack-v2/
-├── backend/                 # Node.js/Express backend
-│   ├── src/
-│   │   ├── config/         # Environment configuration
-│   │   ├── db/             # Database connection
-│   │   ├── middleware/     # Auth, validation middleware
-│   │   ├── routes/         # API endpoints
-│   │   ├── types/          # TypeScript types
-│   │   ├── websocket/      # WebSocket server
-│   │   ├── scripts/        # Migration & seed scripts
-│   │   └── server.ts       # Main server file
-│   ├── schema.sql          # Database schema
-│   ├── package.json
-│   └── tsconfig.json
-│
-├── components/             # React components
-├── pages/                  # React pages
-├── services/               # API service layer
-├── App.tsx                 # Main React app
-├── index.tsx               # Entry point
-├── package.json
-└── vite.config.ts
-```
+1.  **Public Leaderboard & Analytics**
+    - Real-time ranking of schools based on Specific Yield (kWh/kWp).
+    - Interactive energy graphs with adjustable time ranges (1W, 30D, 6M, 1Y).
+    - "Today's Production" live feed updated every few seconds.
 
-## 🛠️ Setup Instructions
+2.  **Telemetry Ingestion Platform**
+    - High-throughput endpoint for IoT devices (ESP32/Data Loggers).
+    - Supports HTTP REST and MQTT protocols.
+    - Automatic latency tracking via server-side timestamps.
+    - Strictly typed payload validation to prevent data corruption.
+
+3.  **Administrative Control Room**
+    - Role-Based Access Control (RBAC): System Admins, School Admins, Viewers.
+    - Device Provisioning Wizard: Step-by-step guide to generating API keys and configuration code.
+    - Live Diagnostics: Monitor ingestion events, drift, and system health in real-time.
+    - User Management: Invite, assign, and manage user roles across organizations.
+
+## Getting Started
 
 ### Prerequisites
-
-- Node.js 18+ and npm/pnpm
-- Supabase account (free tier works)
+- Node.js 18.0.0 or higher
+- npm or pnpm package manager
 - Git
 
-### 1. Clone Repository
+### Installation
 
-```bash
-cd powertrack-v2
-```
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/YashBhardwaj21/powertrack-v2.git
+    cd powertrack-v2
+    ```
 
-### 2. Backend Setup
+2.  **Backend Setup**
+    Navigate to the backend directory and install dependencies:
+    ```bash
+    cd backend
+    npm install
+    ```
 
-```bash
-cd backend
-npm install
-```
+    Create a `.env` file in the `backend` directory with your credentials:
+    ```env
+    NODE_ENV=development
+    PORT=3001
+    FRONTEND_URL=http://localhost:3000
+    DATABASE_URL=postgresql://user:password@host:5432/postgres
+    JWT_SECRET=your_secure_secret
+    WS_PORT=3002
+    ```
 
-Create `.env` file:
+    Start the development server:
+    ```bash
+    npm run dev
+    ```
 
-```env
-NODE_ENV=development
-PORT=3001
-FRONTEND_URL=http://localhost:3000
+3.  **Frontend Setup**
+    Open a new terminal in the project root:
+    ```bash
+    npm install
+    ```
 
-# Supabase Configuration
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-DATABASE_URL=postgresql://postgres:password@db.your-project.supabase.co:5432/postgres
+    Create a `.env.local` file in the root directory:
+    ```env
+    VITE_API_BASE_URL=http://localhost:3001/api/v1
+    VITE_WS_URL=ws://localhost:3002
+    ```
 
-# JWT Configuration
-JWT_SECRET=your-super-secret-key-change-this
-JWT_EXPIRY=24h
+    Start the frontend application:
+    ```bash
+    npm run dev
+    ```
 
-# WebSocket
-WS_PORT=3002
-```
+    Access the application at `http://localhost:3000`.
 
-Run migrations and seed data:
+## Hardware Integration Guide
 
-```bash
-npm run db:migrate
-npm run db:seed
-```
+To connect a new solar inverter or data logger:
 
-Start backend server:
+1.  Log in as a System Admin.
+2.  Navigate to **Control Room**.
+3.  Click **"Manage"** or **"Register New Org"**.
+4.  Follow the **Device Wizard** to generate a unique `X-API-KEY`.
+5.  Configure your hardware to send POST requests to the ingestion endpoint:
 
-```bash
-npm run dev
-```
-
-### 3. Frontend Setup
-
-```bash
-# In project root
-npm install
-```
-
-Create/update `.env.local`:
-
-```env
-VITE_API_BASE_URL=http://localhost:3001/api/v1
-VITE_WS_URL=ws://localhost:3002
-```
-
-Start frontend:
-
-```bash
-npm run dev
-```
-
-### 4. Access Application
-
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:3001/api/v1
-- **Health Check**: http://localhost:3001/health
-
-### 5. Login Credentials
-
-After seeding:
-- **Admin**: `admin@powertrack.com` / `admin123`
-- **School Admins**: Check backend console output for emails / `school123`
-
-## 🔌 Hardware Integration
-
-### ESP32 Configuration
-
-Get your school's API key from the database or admin panel, then use this code:
-
-```cpp
-#include <WiFi.h>
-#include <HTTPClient.h>
-
-const char* ssid = "YOUR_WIFI";
-const char* password = "YOUR_PASSWORD";
-const char* apiUrl = "http://your-server:3001/api/v1/telemetry/ingest";
-const char* apiKey = "your-school-api-key";
-
-void sendTelemetry(float power, float voltage, float current) {
-    HTTPClient http;
-    http.begin(apiUrl);
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("X-API-KEY", apiKey);
-    
-    String payload = "{\"power_w\":" + String(power) + 
-                     ",\"voltage\":" + String(voltage) + 
-                     ",\"current_a\":" + String(current) + "}";
-    
-    http.POST(payload);
-    http.end();
+**Endpoint:** `http://<your-server>/api/v1/telemetry/ingest`
+**Header:** `X-API-KEY: <your-api-key>`
+**Payload (JSON):**
+```json
+{
+  "power_w": 2500.5,
+  "voltage": 230.2,
+  "current_a": 10.8,
+  "daily_kwh": 12.5
 }
 ```
 
-## 📊 Database Schema
+## Security Implementation
 
-### Main Tables
+- **Session Security**: Authentication tokens are stored in `sessionStorage` to ensure sessions are terminated upon browser closure, mitigating session hijacking risks on shared computers.
+- **Data Integrity**: All incoming telemetry data is validated against strict schemas types. Invalid packets are rejected immediately.
+- **Rate Limiting**: API endpoints are protected against brute-force and DDoS attacks using `express-rate-limit`.
+- **CORS Policy**: Strict Cross-Origin Resource Sharing policies prevent unauthorized domain access.
 
-- **users** - User accounts with roles (admin, school_admin, viewer)
-- **schools** - School information and API keys
-- **telemetry** - Time-series solar energy data
-- **alerts** - System alerts and warnings
+## Support
 
-See `backend/schema.sql` for complete schema.
-
-## 🔐 API Authentication
-
-### User Authentication (JWT)
-
-```javascript
-// Login
-const response = await fetch('/api/v1/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password })
-});
-const { token } = await response.json();
-
-// Use token in subsequent requests
-fetch('/api/v1/dashboard/summary', {
-    headers: { 'Authorization': `Bearer ${token}` }
-});
-```
-
-### Hardware Authentication (API Key)
-
-```javascript
-fetch('/api/v1/telemetry/ingest', {
-    method: 'POST',
-    headers: {
-        'Content-Type': 'application/json',
-        'X-API-KEY': 'school-api-key'
-    },
-    body: JSON.stringify({ power_w, voltage, current_a })
-});
-```
-
-## 🌐 Deployment
-
-### Backend Deployment
-
-Recommended platforms:
-- **Railway** (easiest)
-- **Render**
-- **DigitalOcean App Platform**
-- **Heroku**
-
-Set environment variables in platform dashboard and deploy from Git.
-
-### Frontend Deployment
-
-Recommended platforms:
-- **Vercel** (recommended)
-- **Netlify**
-- **Cloudflare Pages**
-
-Update `.env.local` with production API URLs before deploying.
-
-### Database
-
-Supabase is already cloud-hosted. Just ensure:
-1. Connection pooling is enabled
-2. Backups are configured
-3. IP whitelist includes your backend server
-
-## 🧪 Testing
-
-### Test Backend API
-
-```bash
-# Health check
-curl http://localhost:3001/health
-
-# Login
-curl -X POST http://localhost:3001/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@powertrack.com","password":"admin123"}'
-
-# Get leaderboard
-curl http://localhost:3001/api/v1/dashboard/leaderboard
-```
-
-### Test Hardware Ingestion
-
-```bash
-curl -X POST http://localhost:3001/api/v1/telemetry/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-API-KEY: your-api-key" \
-  -d '{"power_w":2500,"voltage":230,"current_a":10.87}'
-```
-
-## 📝 Development Notes
-
-### Key Changes from Previous Version
-
-- ❌ Removed all mock authentication
-- ❌ Removed localStorage-based fake sessions
-- ❌ Removed placeholder API endpoints
-- ❌ Removed simulation code
-- ✅ Added complete Node.js/Express backend
-- ✅ Added PostgreSQL database with proper schema
-- ✅ Added JWT authentication
-- ✅ Added WebSocket real-time updates
-- ✅ Added hardware API key authentication
-
-### Technology Stack
-
-**Frontend:**
-- React 18 + TypeScript
-- Vite 5
-- TailwindCSS 3
-- React Router 6
-- Recharts 2
-- Leaflet 1.9
-
-**Backend:**
-- Node.js 20+
-- Express 4
-- PostgreSQL 14 (Supabase)
-- WebSocket (ws)
-- JWT + bcrypt
-- TypeScript
-
-## 🐛 Troubleshooting
-
-### "Cannot connect to database"
-- Check `DATABASE_URL` in backend `.env`
-- Verify Supabase project is active
-- Check IP whitelist in Supabase settings
-
-### "WebSocket connection failed"
-- Ensure backend is running on port 3002
-- Check firewall settings
-- Verify `VITE_WS_URL` in frontend `.env.local`
-
-### "Invalid credentials" on login
-- Ensure database is seeded (`npm run db:seed`)
-- Check email/password combination
-- Verify JWT_SECRET is set in backend
-
-### Frontend shows "Failed to fetch"
-- Ensure backend is running
-- Check `VITE_API_BASE_URL` matches backend port
-- Verify CORS is configured correctly
-
-## 📄 License
-
-MIT
-
-## 👥 Support
-
-For issues or questions, please check:
-1. Backend README: `backend/README.md`
-2. Database schema: `backend/schema.sql`
-3. API endpoints: Backend README API section
-
----
-
-**Built with ❤️ for West Java Schools**
+For technical assistance or feature requests, please contact the development team or submit an issue in the repository issue tracker.

@@ -61,10 +61,10 @@ export const PublicLobby: React.FC = () => {
         loadGraphData();
 
         // 🔄 Polling Fallback 
-        // 1. Leaderboard: Every 10s (Fast updates)
+        // 1. Leaderboard: Every 30s (Balanced updates, reduced server load)
         const dataInterval = setInterval(() => {
             loadData();
-        }, 10000);
+        }, 30000);
 
         // 2. Graph: Every 60s (Slow updates to prevent flickering)
         const graphInterval = setInterval(() => {

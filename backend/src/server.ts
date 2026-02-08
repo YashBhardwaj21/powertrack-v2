@@ -133,7 +133,7 @@ const startServer = async () => {
         }
 
         // 🔄 Keep database connection alive (prevents Render/Supabase cold starts)
-        // Runs every 4 minutes to stay under the 5-minute idle timeout
+        // Runs every 3 minutes to stay under the 5-minute idle timeout
         setInterval(async () => {
             try {
                 await pool.query('SELECT 1');
@@ -141,7 +141,7 @@ const startServer = async () => {
             } catch (err) {
                 logger.error({ err }, 'Database keep-alive failed');
             }
-        }, 240000); // 4 minutes
+        }, 180000); // 3 minutes
 
     } catch (error) {
         logger.fatal({ err: error }, '❌ Failed to start server');

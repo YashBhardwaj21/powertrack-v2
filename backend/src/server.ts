@@ -103,6 +103,9 @@ const startServer = async () => {
 
         // Start WebSocket server
         initWebSocketServer();
+        setInterval(async () => {
+  await db.query("SELECT 1");
+}, 180000); // every 3 minutes
 
     } catch (error) {
         logger.fatal({ err: error }, '❌ Failed to start server');

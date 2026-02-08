@@ -29,15 +29,16 @@ export const AppHeader: React.FC = () => {
                 </Link>
 
                 {/* Navigation Actions */}
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3 md:gap-4">
                     {auth?.user ? (
                         <>
                             <Link
                                 to="/dashboard"
-                                className="hidden sm:flex items-center gap-2 text-slate-300 hover:text-white transition-colors text-sm font-medium"
+                                className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors text-sm font-medium"
+                                title="Dashboard"
                             >
-                                <LayoutDashboard className="w-4 h-4" />
-                                Dashboard
+                                <LayoutDashboard className="w-5 h-5 md:w-4 md:h-4" />
+                                <span className="hidden sm:inline">Dashboard</span>
                             </Link>
                             <div className="h-6 w-px bg-slate-700 hidden sm:block" />
                             <div className="flex items-center gap-3">
@@ -48,16 +49,17 @@ export const AppHeader: React.FC = () => {
                                 <button
                                     onClick={handleLogout}
                                     className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg transition-all text-xs font-medium border border-slate-700"
+                                    title="Sign Out"
                                 >
                                     <LogOut className="w-3.5 h-3.5" />
-                                    Sign Out
+                                    <span className="hidden sm:inline">Sign Out</span>
                                 </button>
                             </div>
                         </>
                     ) : (
                         <Link
                             to="/login"
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-lg transition-all font-medium text-sm shadow-lg shadow-blue-900/20"
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 md:px-5 rounded-lg transition-all font-medium text-sm shadow-lg shadow-blue-900/20 whitespace-nowrap"
                         >
                             Staff Login
                         </Link>

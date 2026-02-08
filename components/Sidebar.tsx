@@ -14,7 +14,11 @@ import {
 import { AuthContext } from '../App';
 import { useDashboard } from '../context/DashboardContext';
 
-export const Sidebar: React.FC = () => {
+interface SidebarProps {
+    onClose?: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     const auth = useContext(AuthContext);
     const { data } = useDashboard();
     const navigate = useNavigate();
@@ -62,8 +66,8 @@ export const Sidebar: React.FC = () => {
     return (
         <aside className="w-64 h-full bg-slate-900 border-r border-slate-800 flex flex-col shrink-0 overflow-hidden">
             {/* Logo Area */}
-            <div className="p-6 border-b border-slate-800">
-                <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+            <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+                <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity" onClick={onClose}>
                     <div className="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-900/40">
                         <Factory className="text-white w-6 h-6" />
                     </div>
@@ -72,6 +76,15 @@ export const Sidebar: React.FC = () => {
                         <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Enterprise Ingress</p>
                     </div>
                 </Link>
+                {/* Mobile Close Button */}
+                {onClose && (
+                    <button
+                        onClick={onClose}
+                        className="md:hidden p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    >
+                        <LogOut className="w-5 h-5 rotate-180" /> {/* Reusing LogOut icon as a 'back/close' indicator or use X if imported */}
+                    </button>
+                )}
             </div>
 
             {/* Global Status Indicator */}
@@ -114,6 +127,7 @@ export const Sidebar: React.FC = () => {
                     <NavLink
                         key={item.path}
                         to={item.path}
+                        onClick={onClose}
                         className={({ isActive }) => `
                             flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 group
                             ${isActive

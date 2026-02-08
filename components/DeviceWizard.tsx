@@ -150,8 +150,8 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                 {/* Stepper Header */}
-                <div className="bg-slate-50 border-b border-slate-100 px-8 py-6">
-                    <div className="flex justify-between items-center mb-6">
+                <div className="bg-slate-50 border-b border-slate-100 px-4 py-4 md:px-8 md:py-6">
+                    <div className="flex justify-between items-center mb-4 md:mb-6">
                         <h2 className="text-xl font-bold text-slate-800">Registration Wizard</h2>
                         <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
                             <X className="w-5 h-5" />
@@ -168,7 +168,7 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                                     }`}>
                                     {step > i ? <CheckCircle2 className="w-5 h-5" /> : <s.icon className="w-5 h-5" />}
                                 </div>
-                                <span className={`text-[10px] font-bold uppercase tracking-wider ${step === i ? 'text-blue-600' : 'text-slate-400'
+                                <span className={`text-[10px] font-bold uppercase tracking-wider hidden md:block ${step === i ? 'text-blue-600' : 'text-slate-400'
                                     }`}>{s.title}</span>
                             </div>
                         ))}
@@ -176,7 +176,7 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                 </div>
 
                 {/* Content Area */}
-                <div className="p-8 min-h-[450px]">
+                <div className="p-4 md:p-8 min-h-[450px]">
                     {step === 0 && (
                         <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
                             <div className="text-center max-w-sm mx-auto mb-6">
@@ -184,7 +184,7 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                                 <p className="text-sm text-slate-500">First, let's establish your organization's presence on the platform.</p>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Organization Name</label>
                                     <input
@@ -248,7 +248,7 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                                 <h3 className="text-lg font-bold text-slate-900">Select your hardware platform</h3>
                                 <p className="text-sm text-slate-500">Choosing the correct type ensures we apply the right data normalization filters.</p>
                             </div>
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {loadingProfiles ? (
                                     <div className="col-span-2 text-center py-8 text-slate-400">
                                         <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
@@ -404,7 +404,7 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                                 </pre>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="p-4 bg-slate-50 rounded-xl">
                                     <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Required</h5>
                                     <ul className="text-xs text-slate-600 space-y-1.5 font-medium">

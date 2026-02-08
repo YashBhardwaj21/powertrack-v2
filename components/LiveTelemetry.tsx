@@ -13,7 +13,7 @@ interface LiveTelemetryProps {
 export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) => {
     const { locale } = useDashboard();
     const t = TRANSLATIONS[locale];
-    
+
     // Auto-rotate through schools or pick highest power
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [showDebug, setShowDebug] = useState(false);
@@ -49,7 +49,7 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
     };
 
     return (
-        <div className="bg-slate-900 text-white rounded-xl shadow-lg p-6 overflow-hidden relative transition-all duration-300">
+        <div className="bg-slate-900 text-white rounded-xl shadow-lg p-4 md:p-6 overflow-hidden relative transition-all duration-300">
             {/* Background decoration */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full blur-[100px] opacity-10 pointer-events-none"></div>
 
@@ -57,7 +57,7 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                 <div>
                     <h2 className="text-lg font-medium text-slate-300">{t.live_telemetry}</h2>
                     <div className="flex items-center gap-2 mt-1">
-                        <select 
+                        <select
                             value={selectedIndex}
                             onChange={(e) => setSelectedIndex(Number(e.target.value))}
                             className="bg-slate-800 border border-slate-700 text-white text-xl font-bold rounded px-2 py-1 focus:outline-none focus:border-blue-500"
@@ -74,15 +74,15 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                     </div>
                 </div>
                 <div className="text-right flex flex-col items-end">
-                     {/* Toggle Mode */}
-                     <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 mb-2">
-                        <button 
+                    {/* Toggle Mode */}
+                    <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 mb-2">
+                        <button
                             onClick={() => setMode('exec')}
                             className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mode === 'exec' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
                         >
                             {t.exec_view}
                         </button>
-                         <button 
+                        <button
                             onClick={() => setMode('eng')}
                             className={`px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 ${mode === 'eng' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
                         >
@@ -111,7 +111,7 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                     </div>
                     <div className="text-2xl font-mono font-bold">{telemetry.ac_power_kw.toFixed(2)} <span className="text-sm text-slate-500">kW</span></div>
                     <div className="w-full bg-slate-700 h-1 mt-2 rounded-full overflow-hidden">
-                        <div className="bg-blue-500 h-full transition-all duration-500" style={{width: `${(telemetry.ac_power_kw / selectedSchool.total_capacity_kwp) * 100}%`}}></div>
+                        <div className="bg-blue-500 h-full transition-all duration-500" style={{ width: `${(telemetry.ac_power_kw / selectedSchool.total_capacity_kwp) * 100}%` }}></div>
                     </div>
                     {mode === 'eng' && <div className="absolute top-2 right-2 text-[9px] text-slate-600 font-mono group-hover:text-blue-300">Reg: 40083</div>}
                 </div>
@@ -126,8 +126,8 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                         <span className="text-sm text-slate-400">V</span>
                         <span className="font-mono font-bold text-lg">{telemetry.ac_voltage.toFixed(1)}</span>
                     </div>
-                    <div className="w-full bg-slate-700 h-0.5 mb-2 rounded-full"><div className="bg-green-500 h-full" style={{width: '98%'}}></div></div>
-                    
+                    <div className="w-full bg-slate-700 h-0.5 mb-2 rounded-full"><div className="bg-green-500 h-full" style={{ width: '98%' }}></div></div>
+
                     <div className="flex justify-between items-end">
                         <span className="text-sm text-slate-400">A</span>
                         <span className="font-mono font-bold text-lg">{telemetry.ac_current.toFixed(1)}</span>
@@ -145,7 +145,7 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                         <span className="text-sm text-slate-400">Irr.</span>
                         <span className="font-mono font-bold text-lg">{telemetry.irradiance_wm2} <span className="text-xs">W/m²</span></span>
                     </div>
-                     <div className="flex justify-between items-end mt-2">
+                    <div className="flex justify-between items-end mt-2">
                         <span className="text-sm text-slate-400">Tmp.</span>
                         <span className="font-mono font-bold text-lg">{telemetry.panel_temp_c.toFixed(1)}°C</span>
                     </div>
@@ -154,7 +154,7 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
 
                 {/* Efficiency Block */}
                 <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 relative group">
-                     <div className="flex items-center gap-2 text-purple-400 mb-2">
+                    <div className="flex items-center gap-2 text-purple-400 mb-2">
                         <Gauge className="w-4 h-4" />
                         <span className="text-xs uppercase font-bold tracking-wider">Performance</span>
                     </div>
@@ -162,7 +162,7 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                         <div className="text-2xl font-mono font-bold">{telemetry.performance_ratio.toFixed(1)}%</div>
                         <div className="text-xs text-slate-500 mt-1">Performance Ratio</div>
                     </div>
-                     <div className="text-center mt-2 border-t border-slate-700 pt-2">
+                    <div className="text-center mt-2 border-t border-slate-700 pt-2">
                         <span className="text-xs text-slate-400">Inv. Eff: </span>
                         <span className="text-sm font-mono text-white">{telemetry.efficiency_percent}%</span>
                     </div>
@@ -173,17 +173,17 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
             {/* Debug Payload View (Engineer Mode Only) */}
             {mode === 'eng' && (
                 <div className="mt-4">
-                     <button 
+                    <button
                         onClick={() => setShowDebug(!showDebug)}
                         className="text-xs flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors"
                     >
-                        {showDebug ? <ChevronUp className="w-3 h-3"/> : <Terminal className="w-3 h-3"/>}
+                        {showDebug ? <ChevronUp className="w-3 h-3" /> : <Terminal className="w-3 h-3" />}
                         {showDebug ? 'Hide Payload' : 'View Raw MQTT & Modbus Map'}
                     </button>
 
                     {showDebug && (
                         <div className="mt-2 pt-4 border-t border-slate-700 animate-in slide-in-from-top-2 duration-200">
-                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                 <div>
                                     <div className="flex items-center justify-between mb-2">
                                         <div className="flex items-center gap-2">
@@ -228,7 +228,7 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                                         </table>
                                     </div>
                                 </div>
-                             </div>
+                            </div>
                         </div>
                     )}
                 </div>

@@ -1,4 +1,5 @@
 import express from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http'; // Industry standard request logging
@@ -21,7 +22,17 @@ const app = express();
 // Middleware
 app.use(helmet());
 app.use(cors({
-    origin: config.frontendUrl,
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+
+        if (config.frontendUrls.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            logger.warn({ origin }, 'CORS blocked request from unauthorized origin');
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
 }));
 
@@ -47,6 +58,11 @@ app.use(express.urlencoded({ extended: true }));
 
 // Rate limiting
 app.use('/api/', apiLimiter);
+
+// Root health check (for Render/Cloudflare probes)
+app.get('/', (req, res) => {
+    res.json({ status: 'ok', service: 'powertrack-backend' });
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -92,17 +108,40 @@ const startServer = async () => {
         await pool.query('SELECT NOW()');
         logger.info('✅ Database connection successful');
 
-        // Start Express server
-        app.listen(config.port, () => {
+        // Create HTTP server wrapping Express (required for WebSocket on same port)
+        const server = createServer(app);
+
+        // Attach WebSocket to the same HTTP server (required for Render - single port)
+        initWebSocketServer(server);
+
+        // Start the unified HTTP + WebSocket server
+        server.listen(config.port, () => {
             logger.info({
                 port: config.port,
                 env: config.nodeEnv,
                 url: `http://localhost:${config.port}/api/v1`
-            }, '🚀 Server started');
+            }, '🚀 Server started (HTTP + WebSocket on same port)');
         });
 
-        // Start WebSocket server
-        initWebSocketServer();
+        // 🔥 Pre-warm critical caches on startup (eliminates first-request latency)
+        try {
+            const { dashboardService } = await import('./services/dashboardService.js');
+            await dashboardService.getSystemParams(['electricity_tariff_idr', 'carbon_factor_kg_kwh']);
+            logger.info('✅ System parameters cache pre-warmed');
+        } catch (err) {
+            logger.warn({ err }, 'Cache pre-warm failed (non-critical)');
+        }
+
+        // 🔄 Keep database connection alive (prevents Render/Supabase cold starts)
+        // Runs every 4 minutes to stay under the 5-minute idle timeout
+        setInterval(async () => {
+            try {
+                await pool.query('SELECT 1');
+                logger.debug('Database keep-alive ping');
+            } catch (err) {
+                logger.error({ err }, 'Database keep-alive failed');
+            }
+        }, 240000); // 4 minutes
 
     } catch (error) {
         logger.fatal({ err: error }, '❌ Failed to start server');

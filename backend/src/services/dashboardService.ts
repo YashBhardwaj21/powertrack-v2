@@ -2,16 +2,33 @@ import { query } from '../db/index.js';
 import { transformSchoolRow } from '../utils/transformers.js';
 import { School } from '../types/index.js';
 
+// ⚡ In-memory cache for system_parameters (reduces DB hits)
+let systemParamsCache: Record<string, number> | null = null;
+let systemParamsCacheExpiry = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 export const dashboardService = {
     async getSystemParams(keys: string[]) {
+        const now = Date.now();
+
+        // Return cached value if valid
+        if (systemParamsCache && now < systemParamsCacheExpiry) {
+            return systemParamsCache;
+        }
+
         const result = await query(
             'SELECT * FROM public.system_parameters WHERE key = ANY($1)',
             [keys]
         );
-        return result.rows.reduce((acc, row) => {
+
+        systemParamsCache = result.rows.reduce((acc, row) => {
             acc[row.key] = parseFloat(row.value);
             return acc;
         }, {} as Record<string, number>);
+
+        systemParamsCacheExpiry = now + CACHE_TTL_MS;
+
+        return systemParamsCache;
     },
 
     async getActiveSchools() {

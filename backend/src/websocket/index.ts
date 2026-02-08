@@ -1,6 +1,6 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
-import { config } from '../config/index.js';
+import { Server } from 'http';
 import { logger } from '../utils/logger.js';
 
 let wss: WebSocketServer;
@@ -15,8 +15,9 @@ const schoolSubscriptions = new Map<string, Set<WebSocket>>();
 // Set: Clients subscribed to 'all' schools (e.g., Admin Dashboard)
 const globalSubscribers = new Set<WebSocket>();
 
-export const initWebSocketServer = () => {
-    wss = new WebSocketServer({ port: config.wsPort });
+// Now accepts the HTTP server to attach WebSocket to the same port (required for Render)
+export const initWebSocketServer = (server: Server) => {
+    wss = new WebSocketServer({ server });
 
     wss.on('connection', (ws: WebSocket) => {
         logger.debug('✅ New WebSocket client connected');
@@ -52,7 +53,7 @@ export const initWebSocketServer = () => {
         });
     });
 
-    logger.info(`🔌 WebSocket server running on port ${config.wsPort}`);
+    logger.info('🔌 WebSocket server attached to HTTP server');
 };
 
 // Helper to handle subscription logic

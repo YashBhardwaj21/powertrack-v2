@@ -182,5 +182,5 @@ PowerTrack is hardware-agnostic, supporting:
 ## 16. Contact
 
 *   **Developer**: Yash Bhardwaj
-*   **Email**: yash.bhardwaj@example.com
+*   **Email**: byash0712@gmail.com
 *   **GitHub**: [https://github.com/YashBhardwaj21/powertrack-v2](https://github.com/YashBhardwaj21/powertrack-v2)

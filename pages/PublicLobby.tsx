@@ -274,7 +274,7 @@ export const PublicLobby: React.FC = () => {
                                                                 </td>
                                                                 <td className="px-8 py-6 font-mono text-slate-900 font-bold text-right text-lg">
                                                                     <span>
-                                                                        {item.total_energy_kwh.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                                                                        {Number(item.total_energy_kwh).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                                         <span className="text-slate-400 ml-2 text-xs font-bold uppercase">kWh</span>
                                                                     </span>
                                                                 </td>

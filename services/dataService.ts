@@ -173,12 +173,7 @@ let ws: WebSocket | null = null;
 
 export const subscribeToTelemetry = (
     schoolId: string | null,
-    onData: (
-        data: Telemetry[],
-        alerts: Alert[],
-        community: CommunityStats,
-        hourlyHistorical: Array<{ hour: string; avg_power: number; energy: number }>
-    ) => void
+    onData: (data: DashboardData) => void
 ) => {
     // Close existing connection if any
     if (ws) {
@@ -205,12 +200,7 @@ export const subscribeToTelemetry = (
             if (message.type === 'telemetry_update' || message.type === 'alert') {
                 // Fetch fresh dashboard data when update received
                 const dashboardData = await fetchDashboardData(schoolId || undefined);
-                onData(
-                    dashboardData.current_data,
-                    dashboardData.alerts,
-                    dashboardData.community_stats,
-                    dashboardData.hourly_historical
-                );
+                onData(dashboardData);
             }
         } catch (error) {
             console.error('WebSocket message error:', error);
@@ -252,12 +242,7 @@ export const subscribeToTelemetry = (
                 const message = JSON.parse(event.data);
                 if (message.type === 'telemetry_update' || message.type === 'alert') {
                     const dashboardData = await fetchDashboardData(schoolId || undefined);
-                    onData(
-                        dashboardData.current_data,
-                        dashboardData.alerts,
-                        dashboardData.community_stats,
-                        dashboardData.hourly_historical
-                    );
+                    onData(dashboardData);
                 }
             } catch (error) {
                 console.error('WebSocket message error:', error);

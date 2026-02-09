@@ -1,5 +1,6 @@
 import { query } from './db/index.js';
 import { logger } from './utils/logger.js';
+import { broadcastTelemetryUpdate } from './websocket/index.js';
 import {
     getLocalHour, getDayOfYear,
     daylightFactor, calcIrradiance, calcTemperature,
@@ -135,7 +136,7 @@ async function simulateTick() {
             const id = school.id;
             const tz = school.timezone;
             const lat = Number(school.latitude);
-            
+
             if (!tz || !lat) {
                 logger.warn({ school: school.name }, '⚠️ Missing timezone or latitude, skipping');
                 continue;
@@ -247,6 +248,29 @@ async function simulateTick() {
                 weather,
                 reason
             }, '☀️ Tick');
+
+            // 🔥 Broadcast to Frontend (Fixes "Dashboard not changing")
+            broadcastTelemetryUpdate({
+                school_id: id,
+                timestamp: new Date(),
+                ac_power_kw: solar_kw,
+                ac_voltage: 230,
+                ac_current: Number(current),
+                total_energy_kwh: lifetimeEnergy[id],
+                daily_energy_kwh: dailyEnergy[id],
+                daily_export_kwh: dailyExport[id],
+                daily_import_kwh: dailyImport[id],
+                load_kw: load_kw,
+                grid_export_kw: exportKw,
+                grid_import_kw: importKw,
+                irradiance_wm2: irradiance,
+                panel_temp_c: temp,
+                weather_condition: weather,
+                performance_ratio: 0.9, // Estimated
+                efficiency_percent: 19.5, // Standard Mono Panel
+                fault: 'none',
+                quality_score: 100
+            });
 
         } catch (err) {
             logger.error({ err, school: school.name }, '❌ Tick failed for school');

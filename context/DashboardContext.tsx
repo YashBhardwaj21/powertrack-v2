@@ -83,17 +83,15 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
         }, 30000); // Check every 30 seconds
 
         // Start "MQTT" subscription
-        unsubscribe = subscribeToTelemetry(null, (telemetry, alerts, community, hourlyHistorical) => {
+        unsubscribe = subscribeToTelemetry(null, (newData) => {
             setData(current => {
-                if (!current) return null;
-                const updated = {
-                    ...current,
-                    current_data: telemetry,
-                    alerts,
-                    community_stats: community,
-                    hourly_historical: hourlyHistorical
-                };
-                return updated;
+                if (!current) return newData; // Init if empty
+
+                // Merge strategies could be complex, but for now, 
+                // since fetchDashboardData returns a full snapshot, 
+                // we can just replace the data or do a shallow merge.
+                // A full replacement is safest to ensure consistency.
+                return newData;
             });
             setLastUpdated(new Date().toLocaleTimeString());
         });

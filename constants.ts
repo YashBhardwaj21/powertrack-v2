@@ -8,7 +8,10 @@ export const WEATHER_ICONS: Record<string, string> = {
     'sunny': '☀️',
     'partly_cloudy': '⛅',
     'cloudy': '☁️',
-    'rainy': '🌧️'
+    'rainy': '🌧️',
+    'rain': '🌧️',     // Fallback
+    'storm': '⛈️',    // Fallback
+    'unknown': '❓'
 };
 
 export const FAULT_LABELS: Record<string, string> = {

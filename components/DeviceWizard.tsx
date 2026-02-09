@@ -17,16 +17,13 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
     const [apiKey, setApiKey] = useState('');
     const [committedUser, setCommittedUser] = useState<any>(null); // Store authoritative user
 
-    // Organization details
+    // Organization details (lat/lng/timezone derived from district by backend)
     const [orgData, setOrgData] = useState({
         name: '',
         type: 'Primary School',
         district: '',
-        latitude: -6.2088,
-        longitude: 106.8456,
         total_capacity_kwp: 5.0,
-        total_cost_idr: 0,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta'
+        total_cost_idr: 0
     });
 
     // Hardware details

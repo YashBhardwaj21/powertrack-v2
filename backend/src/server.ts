@@ -9,6 +9,10 @@ import { initWebSocketServer } from './websocket/index.js';
 import { apiLimiter } from './middleware/rateLimit.js';
 import { logger } from './utils/logger.js'; // Structured logging
 
+// 🔥 ====== ADDED LINE #1 ======
+import { startSimulator, stopSimulator } from './simulator.js';
+// 🔥 ===========================
+
 // Import routes
 import authRoutes from './routes/auth.js';
 import telemetryRoutes from './routes/telemetry.js';
@@ -54,8 +58,6 @@ app.use(pinoHttp({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ... (imports)
-
 // Rate limiting
 app.use('/api/', apiLimiter);
 
@@ -75,8 +77,6 @@ app.get('/health', (req, res) => {
 
 import versionRoutes from './routes/version.js';
 import v2Routes from './routes/v2/index.js';
-
-// ...
 
 // API Routes
 app.use('/api/v1/version', versionRoutes);
@@ -123,6 +123,10 @@ const startServer = async () => {
             }, '🚀 Server started (HTTP + WebSocket on same port)');
         });
 
+        // 🔥 ====== ADDED LINE #2 ======
+        startSimulator().catch(err => logger.error({ err }, 'Simulator startup failed'));
+        // 🔥 ===========================
+
         // 🔥 Pre-warm critical caches on startup (eliminates first-request latency)
         try {
             const { dashboardService } = await import('./services/dashboardService.js');
@@ -133,7 +137,6 @@ const startServer = async () => {
         }
 
         // 🔄 Keep database connection alive (prevents Render/Supabase cold starts)
-        // Runs every 3 minutes to stay under the 5-minute idle timeout
         setInterval(async () => {
             try {
                 await pool.query('SELECT 1');
@@ -152,12 +155,22 @@ const startServer = async () => {
 // Handle graceful shutdown
 process.on('SIGTERM', async () => {
     logger.info('SIGTERM received, shutting down gracefully...');
+
+    // 🔥 ====== ADDED LINE #3 ======
+    stopSimulator();
+    // 🔥 ===========================
+
     await pool.end();
     process.exit(0);
 });
 
 process.on('SIGINT', async () => {
     logger.info('SIGINT received, shutting down gracefully...');
+
+    // 🔥 ====== ADDED LINE #4 ======
+    stopSimulator();
+    // 🔥 ===========================
+
     await pool.end();
     process.exit(0);
 });

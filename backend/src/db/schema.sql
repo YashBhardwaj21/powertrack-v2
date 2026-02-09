@@ -226,3 +226,33 @@ DROP TRIGGER IF EXISTS update_schools_updated_at ON public.schools;
 CREATE TRIGGER update_schools_updated_at
 BEFORE UPDATE ON public.schools
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- =========================================================
+-- SIMULATOR STATE (For persistent midnight reset tracking)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.simulator_state (
+    school_id UUID PRIMARY KEY REFERENCES public.schools(id) ON DELETE CASCADE,
+    last_sim_date DATE NOT NULL DEFAULT CURRENT_DATE
+);
+
+-- =========================================================
+-- SCHEMA MIGRATIONS (Idempotent Column Additions)
+-- =========================================================
+
+-- Add daily_self_consumed_kwh to telemetry
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='telemetry' AND column_name='daily_self_consumed_kwh') THEN
+        ALTER TABLE public.telemetry ADD COLUMN daily_self_consumed_kwh NUMERIC DEFAULT 0;
+    END IF;
+END $$;
+
+-- Add baseline_load_kw to schools (for stable load simulation)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='schools' AND column_name='baseline_load_kw') THEN
+        ALTER TABLE public.schools ADD COLUMN baseline_load_kw NUMERIC;
+    END IF;
+END $$;

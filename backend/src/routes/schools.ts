@@ -9,49 +9,10 @@ import { transformSchoolRow } from '../utils/transformers.js';
 
 const router = express.Router();
 
-/* =========================================================
-   HELPER: INFER TIMEZONE FROM DISTRICT
-   ========================================================= */
-const getTimezoneForDistrict = (district: string): string => {
-    if (!district) return 'Asia/Jakarta'; // Default to WIB
+// Import district helper for timezone and coordinates (uses geocoding for unknown districts)
+import { getDistrictInfoAsync } from '../utils/districtHelper.js';
 
-    const d = district.toLowerCase();
 
-    // INDIA (UTC+5:30)
-    const indiaKeywords = [
-        'kurnool', 'hyderabad', 'bangalore', 'mumbai', 'delhi', 'chennai', 'kolkata', 'pune',
-        'andhra', 'telangana', 'karnataka', 'maharashtra', 'india', 'noida', 'gurgaon', 'jaipur'
-    ];
-
-    // AUSTRALIA (UTC+10 etc)
-    const auBrisbane = ['queensland', 'brisbane', 'gold coast', 'cairns', 'townsville', 'mackay', 'rockhampton', 'queenstown']; // Mapping Queenstown to Brisbane based on User context, though Queenstown NZ exists. Safe bet for now given "Queensland" mention.
-    const auSydney = ['sydney', 'nsw', 'new south wales', 'canberra', 'melbourne', 'victoria'];
-    const auPerth = ['perth', 'western australia'];
-
-    // WITA (UTC+8): Bali, Sulawesi, Nusa Tenggara, South/East Kalimantan
-    const witaKeywords = [
-        'bali', 'denpasar', 'badung', 'gianyar', 'tabanan', // Bali
-        'makassar', 'manado', 'palu', 'kendari', 'gorontalo', 'mamuju', // Sulawesi
-        'lombok', 'mataram', 'sumbawa', 'kupang', 'flores', // Nusa Tenggara
-        'balikpapan', 'samarinda', 'bontang', 'tarakan', 'banjarmasin' // East/South/North Kalimantan
-    ];
-
-    // WIT (UTC+9): Maluku, Papua
-    const witKeywords = [
-        'ambon', 'tual', 'ternate', 'tidore', // Maluku
-        'jayapura', 'merauke', 'sorong', 'manokwari', 'mimika', 'biak' // Papua
-    ];
-
-    if (indiaKeywords.some(k => d.includes(k))) return 'Asia/Kolkata';
-    if (auBrisbane.some(k => d.includes(k))) return 'Australia/Brisbane';
-    if (auSydney.some(k => d.includes(k))) return 'Australia/Sydney';
-    if (auPerth.some(k => d.includes(k))) return 'Australia/Perth';
-    if (witaKeywords.some(k => d.includes(k))) return 'Asia/Makassar';
-    if (witKeywords.some(k => d.includes(k))) return 'Asia/Jayapura';
-
-    // Default to WIB (Asia/Jakarta) for Java, Sumatra, West/Central Kalimantan
-    return 'Asia/Jakarta';
-};
 
 /* =========================================================
    GET ALL SCHOOLS (ACTIVE ONLY BY DEFAULT)
@@ -143,8 +104,11 @@ router.post(
             const rawKey = api_key || `pt_live_${crypto.randomBytes(32).toString('hex')}`;
             const apiKeyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
 
-            // 🕒 Use Provided Timezone or Default to WIB
-            const finalTimezone = (req.body.timezone as string) || 'Asia/Jakarta';
+            // 🌍 DERIVE timezone AND coordinates from district (uses geocoding for unknown districts)
+            const districtInfo = await getDistrictInfoAsync(district);
+            const finalTimezone = districtInfo.timezone;
+            const finalLatitude = districtInfo.latitude;
+            const finalLongitude = districtInfo.longitude;
 
             const result = await query(
                 `INSERT INTO public.schools (
@@ -165,13 +129,13 @@ router.post(
                     name,
                     type,
                     district,
-                    latitude,
-                    longitude,
+                    finalLatitude,   // Use district-derived latitude
+                    finalLongitude,  // Use district-derived longitude
                     total_capacity_kwp,
                     total_cost_idr,
                     apiKeyHash,
                     finalProfileId || null,
-                    finalTimezone
+                    finalTimezone    // Use district-derived timezone
                 ]
             );
 

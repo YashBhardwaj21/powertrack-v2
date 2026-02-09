@@ -1,6 +1,7 @@
 import { query } from './db/index.js';
 import { logger } from './utils/logger.js';
 import { broadcastTelemetryUpdate } from './websocket/index.js';
+import { DateTime } from 'luxon';
 import {
     getLocalHour, getDayOfYear,
     daylightFactor, calcIrradiance, calcTemperature,
@@ -30,6 +31,7 @@ const CACHE_TTL = process.env.NODE_ENV === 'development' ? 60_000 : 600_000;
 // Per-school state (in-memory, resets on restart)
 const baseLoadBySchool: Record<string, number> = {};
 const dailyEnergy: Record<string, number> = {};
+const dailySelfConsumed: Record<string, number> = {}; // New: Track self interaction explicitly
 const dailyExport: Record<string, number> = {};
 const dailyImport: Record<string, number> = {};
 const lifetimeEnergy: Record<string, number> = {};
@@ -55,73 +57,139 @@ async function getSchools(): Promise<School[]> {
 }
 
 // ═══════════ STARTUP SEEDING ═══════════
+// Helper for backoff
+const wait = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+// ═══════════ STARTUP SEEDING ═══════════
 async function seedFromDB() {
+    // 1. Ensure Checkpoint Table Exists (Auto-migration)
+    await query(`
+        CREATE TABLE IF NOT EXISTS simulator_checkpoint (
+            school_id UUID PRIMARY KEY REFERENCES schools(id),
+            last_sim_date DATE NOT NULL,
+            last_verified_total_kwh NUMERIC(10, 4) DEFAULT 0,
+            daily_energy_kwh NUMERIC(10, 4) DEFAULT 0,
+            daily_export_kwh NUMERIC(10, 4) DEFAULT 0,
+            daily_import_kwh NUMERIC(10, 4) DEFAULT 0,
+            base_load_kw NUMERIC(10, 4) DEFAULT 0,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )
+    `);
+
     const schools = await getSchools();
 
     for (const s of schools) {
         const id = s.id;
+        let success = false;
 
-        // Seed lifetime from last telemetry
-        try {
-            const res = await query(
-                `SELECT total_energy_kwh FROM telemetry 
-                 WHERE school_id=$1 ORDER BY timestamp DESC LIMIT 1`,
-                [id]
-            );
-            lifetimeEnergy[id] = Number(res.rows[0]?.total_energy_kwh) || 0;
-        } catch {
-            lifetimeEnergy[id] = 0;
+        // 🔄 RETRY LOOP (Max 6 attempts: ~2s, 4s, 8s, 16s, 32s, 64s)
+        for (let i = 0; i < 6; i++) {
+            try {
+                // 2. Try Checkpoint First (Primary Source of Truth)
+                const cp = await query(
+                    `SELECT * FROM simulator_checkpoint WHERE school_id=$1`,
+                    [id]
+                );
+
+                if (cp.rows.length > 0) {
+                    const row = cp.rows[0];
+                    lifetimeEnergy[id] = Number(row.last_verified_total_kwh);
+                    dailyEnergy[id] = Number(row.daily_energy_kwh);
+                    dailyExport[id] = Number(row.daily_export_kwh);
+                    dailyImport[id] = Number(row.daily_import_kwh);
+                    baseLoadBySchool[id] = Number(row.base_load_kw);
+
+                    // Recover self-consumed
+                    dailySelfConsumed[id] = Math.max(0, dailyEnergy[id] - dailyExport[id]);
+
+                    // Convert DB Date to ISO string YYYY-MM-DD
+                    lastDate[id] = new Date(row.last_sim_date).toISOString().split('T')[0];
+
+                    logger.info({ school: s.name, method: 'CheckPoint' }, '📦 State restored');
+                }
+                else {
+                    // 3. Fallback to Telemetry (Only for Brand New Schools)
+                    // Fix #2: Correctly rehydrate daily counters if checkpoint is missing
+                    const tz = s.timezone || 'UTC';
+                    const todayDate = DateTime.now().setZone(tz).toISODate()!;
+
+                    // Get latest total AND today's max daily
+                    const lt = await query(
+                        `SELECT total_energy_kwh, DATE(timestamp) as d
+                         FROM telemetry
+                         WHERE school_id=$1
+                         ORDER BY timestamp DESC LIMIT 1`,
+                        [id]
+                    );
+
+                    const dailyRes = await query(
+                        `SELECT MAX(daily_energy_kwh) as max_daily, MAX(daily_export_kwh) as max_export
+                         FROM telemetry
+                         WHERE school_id=$1 AND DATE(timestamp AT TIME ZONE $2) = $3::date`,
+                        [id, tz, todayDate]
+                    );
+
+                    lifetimeEnergy[id] = Number(lt.rows[0]?.total_energy_kwh) || 0;
+
+                    // Restore Daily Logic
+                    const lastDataDate = lt.rows[0]?.d ? new Date(lt.rows[0].d).toISOString().split('T')[0] : null;
+
+                    if (lastDataDate === todayDate) {
+                        dailyEnergy[id] = Number(dailyRes.rows[0]?.max_daily) || 0;
+                        dailyExport[id] = Number(dailyRes.rows[0]?.max_export) || 0;
+                        lastDate[id] = todayDate;
+                    } else {
+                        dailyEnergy[id] = 0;
+                        dailyExport[id] = 0;
+                        lastDate[id] = todayDate;
+                    }
+
+                    dailySelfConsumed[id] = Math.max(0, dailyEnergy[id] - dailyExport[id]);
+                    dailyImport[id] = 0; // Reset import for safety as it's less critical to persist exactly without checkpoint
+
+                    // Generate new base load
+                    baseLoadBySchool[id] = getBaseLoad(Number(s.total_capacity_kwp) || 5);
+
+                    logger.info({ school: s.name, method: 'Telemetry/Fresh' }, '📦 State initialized (Fallback)');
+                }
+
+                // Calculate extra logging info (Sunrise/Sunset) only on success
+                const tz = s.timezone || 'UTC';
+                const lat = Number(s.latitude) || -6.9;
+                const dayOfYear = getDayOfYear(tz);
+                const { sunrise, sunset } = getSunriseSunset(lat, dayOfYear);
+
+                success = true;
+                break; // Exit retry loop
+            }
+            catch (err) {
+                const delay = 2000 * Math.pow(2, i); // Exponential Backoff
+                logger.warn({ attempt: i + 1, delay, school: s.name, err }, '⚠️ DB Seed Failed, Retrying...');
+                await wait(delay);
+            }
         }
 
-        // Seed daily from today's data
-        try {
-            const res = await query(`
-                SELECT 
-                    MAX(daily_energy_kwh) as de,
-                    MAX(daily_export_kwh) as ex,
-                    MAX(daily_import_kwh) as im
-                FROM telemetry
-                WHERE school_id=$1 AND DATE(timestamp)=CURRENT_DATE
-            `, [id]);
-            dailyEnergy[id] = Number(res.rows[0]?.de) || 0;
-            dailyExport[id] = Number(res.rows[0]?.ex) || 0;
-            dailyImport[id] = Number(res.rows[0]?.im) || 0;
-        } catch {
-            dailyEnergy[id] = 0;
-            dailyExport[id] = 0;
-            dailyImport[id] = 0;
+        // 🚨 CRITICAL FAILURE
+        if (!success) {
+            logger.error({ school: s.name }, '🚨 CRITICAL: Could not seed data. Stopping Simulator.');
+            throw new Error('Database Seeding Failed - Integrity Protection');
         }
-
-        // Generate stable base load for this school
-        baseLoadBySchool[id] = getBaseLoad(Number(s.total_capacity_kwp) || 5);
-
-        // Calculate sunrise/sunset for logging
-        const lat = Number(s.latitude) || -6.9;
-        const tz = s.timezone;
-        if (!tz) {
-            logger.warn({ school: s.name }, '⚠️ No timezone set, skipping');
-            continue;
-        }
-        const dayOfYear = getDayOfYear(tz);
-        const { sunrise, sunset } = getSunriseSunset(lat, dayOfYear);
-
-        logger.info({
-            school: s.name,
-            latitude: lat.toFixed(2),
-            sunrise: sunrise.toFixed(2),
-            sunset: sunset.toFixed(2),
-            lifetime: lifetimeEnergy[id].toFixed(2),
-            baseLoad: baseLoadBySchool[id].toFixed(2)
-        }, '📦 Seeded state');
     }
 }
 
 // ═══════════ MIDNIGHT RESET ═══════════
 function checkMidnightReset(id: string, tz: string): boolean {
-    const today = new Date().toISOString().split('T')[0];
+    const today = DateTime.now().setZone(tz).toISODate();
 
+    // First run (or missing state): Initialize without resetting energy
+    if (!lastDate[id]) {
+        lastDate[id] = today!;
+        return false;
+    }
+
+    // Day changed: Trigger reset
     if (lastDate[id] !== today) {
-        lastDate[id] = today;
+        lastDate[id] = today!;
         return true;
     }
     return false;
@@ -145,6 +213,7 @@ async function simulateTick() {
             // Midnight reset
             if (checkMidnightReset(id, tz)) {
                 dailyEnergy[id] = 0;
+                dailySelfConsumed[id] = 0;
                 dailyExport[id] = 0;
                 dailyImport[id] = 0;
                 logger.info({ school: school.name }, '🌅 Midnight reset');
@@ -185,16 +254,29 @@ async function simulateTick() {
             // Energy calculations
             const intervalHours = 10 / 3600;
             const produced = solar_kw * intervalHours;
+            const selfConsumed = Math.min(solar_kw, load_kw) * intervalHours;
             const exported = Math.max(0, solar_kw - load_kw) * intervalHours;
             const imported = Math.max(0, load_kw - solar_kw) * intervalHours;
 
-            // Accumulate (initialize if needed)
-            dailyEnergy[id] = (dailyEnergy[id] || 0) + produced;
+            // Accumulate (Strict Monotonic)
+            dailySelfConsumed[id] = (dailySelfConsumed[id] || 0) + selfConsumed;
             dailyExport[id] = (dailyExport[id] || 0) + exported;
             dailyImport[id] = (dailyImport[id] || 0) + imported;
 
-            // Lifetime only when solar > 0
-            if (solar_kw > 0) {
+            const previousDailyEnergy = dailyEnergy[id] || 0;
+            // Energy = Self + Export
+            let newDailyEnergy = dailySelfConsumed[id] + dailyExport[id];
+
+            // 🛡️ Fix #1: Strict Monotonicity Guard
+            if (newDailyEnergy < previousDailyEnergy) {
+                logger.warn({ school: school.name, prev: previousDailyEnergy, new: newDailyEnergy }, '⚠️ Monotonic Violation prevented');
+                newDailyEnergy = previousDailyEnergy;
+            }
+
+            dailyEnergy[id] = newDailyEnergy;
+
+            // Lifetime Accumulation
+            if (produced > 0) {
                 lifetimeEnergy[id] = (lifetimeEnergy[id] || 0) + produced;
             }
 
@@ -234,6 +316,31 @@ async function simulateTick() {
                 irradiance.toFixed(1),
                 temp.toFixed(1),
                 weather
+            ]);
+
+            // 🔥 SAVE CHECKPOINT (Persistence)
+            await query(`
+                INSERT INTO simulator_checkpoint (
+                    school_id, last_sim_date, last_verified_total_kwh,
+                    daily_energy_kwh, daily_export_kwh, daily_import_kwh,
+                    base_load_kw, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                ON CONFLICT (school_id) DO UPDATE SET
+                    last_sim_date = EXCLUDED.last_sim_date,
+                    last_verified_total_kwh = EXCLUDED.last_verified_total_kwh,
+                    daily_energy_kwh = EXCLUDED.daily_energy_kwh,
+                    daily_export_kwh = EXCLUDED.daily_export_kwh,
+                    daily_import_kwh = EXCLUDED.daily_import_kwh,
+                    base_load_kw = EXCLUDED.base_load_kw,
+                    updated_at = NOW()
+            `, [
+                id,
+                lastDate[id],
+                lifetimeEnergy[id],
+                dailyEnergy[id],
+                dailyExport[id],
+                dailyImport[id],
+                baseLoadBySchool[id]
             ]);
 
             logger.info({

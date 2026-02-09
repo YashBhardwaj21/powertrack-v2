@@ -2,7 +2,17 @@
 import { DashboardData, Telemetry, Alert, CommunityStats } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api/v1';
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3002';
+const getWsUrl = () => {
+    // If explicit env var is set (e.g. production), use it
+    if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
+
+    // Otherwise, construct from window location (development robustness)
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname;
+    const port = '3001'; // Backend port
+    return `${protocol}//${host}:${port}`;
+};
+const WS_URL = getWsUrl();
 
 // Custom Error Class
 export class ApiError extends Error {

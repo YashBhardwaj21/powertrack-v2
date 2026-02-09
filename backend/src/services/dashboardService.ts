@@ -360,20 +360,21 @@ export const dashboardService = {
                 FROM daily_yields
                 GROUP BY school_id
             ),
-            latest_metrics AS (
-                SELECT DISTINCT ON (school_id) school_id, daily_energy_kwh
+            today_metrics AS (
+                SELECT school_id, MAX(daily_energy_kwh) as daily_energy_kwh
                 FROM public.telemetry
-                ORDER BY school_id, timestamp DESC
+                WHERE timestamp >= CURRENT_DATE
+                GROUP BY school_id
             )
             SELECT
                 s.id AS school_id, s.name AS school_name, s.district, s.total_capacity_kwp,
                 COALESCE(agg.calculated_total_yield, 0) AS total_energy_kwh,
-                COALESCE(lt.daily_energy_kwh, 0) AS today_energy_kwh,
+                COALESCE(tm.daily_energy_kwh, 0) AS today_energy_kwh,
                 COALESCE(agg.calculated_total_yield * 0.85, 0) AS co2_reduced_kg,
                 RANK() OVER(ORDER BY COALESCE(agg.calculated_total_yield, 0) DESC) AS rank
              FROM public.schools s
              LEFT JOIN school_aggregates agg ON s.id = agg.school_id
-             LEFT JOIN latest_metrics lt ON s.id = lt.school_id
+             LEFT JOIN today_metrics tm ON s.id = tm.school_id
              WHERE s.deleted_at IS NULL
              ORDER BY total_energy_kwh DESC`
         );

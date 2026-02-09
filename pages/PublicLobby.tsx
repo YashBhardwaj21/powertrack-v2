@@ -8,7 +8,14 @@ import { PublicEnergyChart } from '../components/PublicEnergyChart';
 import { PublicMap } from '../components/PublicMap';
 
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
+const getWsUrl = () => {
+    if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname;
+    const port = '3001';
+    return `${protocol}//${host}:${port}`;
+};
+const WS_URL = getWsUrl();
 
 export const PublicLobby: React.FC = () => {
     const [leaderboard, setLeaderboard] = useState<any[]>([]);
@@ -82,11 +89,25 @@ export const PublicLobby: React.FC = () => {
         ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data);
-                if (msg.type === 'telemetry_update' || msg.type === 'school_created') {
-                    // Re-fetch leaderboard on any update (Keep this live)
+
+                if (msg.type === 'telemetry_update') {
+                    const update = msg.data;
+                    // 🔥 optimistically update the leaderboard for instant feedback
+                    setLeaderboard(prev => prev.map(school => {
+                        if (school.school_id === update.school_id) {
+                            return {
+                                ...school,
+                                total_energy_kwh: update.total_energy_kwh,
+                                today_energy_kwh: update.daily_energy_kwh,
+                                // Trigger re-render of CO2 and Yield via these changes
+                            };
+                        }
+                        return school;
+                    }).sort((a, b) => b.total_energy_kwh - a.total_energy_kwh)); // Re-sort live? Maybe distraction, but accurate.
+                }
+                else if (msg.type === 'school_created') {
+                    // New school needs full fetch to get name, capacity, etc.
                     loadData();
-                    // ❌ Graph is too heavy to reload on every packet. 
-                    // It will update via the polling interval (every 60s) instead.
                 }
             } catch (e) {
                 console.error('WS Parse Error', e);

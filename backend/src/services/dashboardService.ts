@@ -75,15 +75,15 @@ export const dashboardService = {
         const result = await query(
             `WITH school_tz AS (
                 SELECT id, COALESCE(timezone, 'Asia/Jakarta') as tz FROM public.schools
+                WHERE ($2::uuid IS NULL OR id = $2::uuid)
             ),
             time_buckets AS (
                 SELECT s.id as school_id, generate_series(
-                    date_trunc('hour', NOW() AT TIME ZONE s.tz - INTERVAL '24 hours'), 
+                    date_trunc('day', NOW() AT TIME ZONE s.tz), 
                     date_trunc('hour', NOW() AT TIME ZONE s.tz), 
                     $1::interval
                 ) as time_bucket
                 FROM school_tz s
-                WHERE ($2::uuid IS NULL OR s.id = $2::uuid)
             ),
             per_school_hourly AS (
                 SELECT 
@@ -95,7 +95,7 @@ export const dashboardService = {
                     0 as day_export_cum
                 FROM public.telemetry t
                 JOIN school_tz s ON t.school_id = s.id
-                WHERE t.timestamp >= NOW() - INTERVAL '26 hours' 
+                WHERE t.timestamp >= NOW() - INTERVAL '48 hours' 
                 AND ($2::uuid IS NULL OR t.school_id = $2::uuid)
                 GROUP BY 1, 2
             ),
@@ -124,7 +124,9 @@ export const dashboardService = {
                 COALESCE(sys_avg_export, 0) as avg_export_power,
                 GREATEST(COALESCE(energy_delta, sys_avg_power, 0), 0) as energy
             FROM hourly_deltas
-            WHERE time_bucket >= date_trunc('hour', NOW() AT TIME ZONE (SELECT COALESCE(timezone, 'Asia/Jakarta') FROM public.schools LIMIT 1) - INTERVAL '24 hours')
+            WHERE time_bucket >= (
+                SELECT MIN(date_trunc('day', NOW() AT TIME ZONE tz)) FROM school_tz
+            )
             ORDER BY time_bucket ASC`,
             [interval, schoolId || null]
         );

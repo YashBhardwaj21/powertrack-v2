@@ -17,12 +17,46 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
     const [statsData, setStatsData] = React.useState<any[] | null>(null);
     const [loading, setLoading] = React.useState(false);
 
-    // Initial load: use props (which are default 30D)
+    // Interactive hourly state
+    const [selectedDate, setSelectedDate] = React.useState<string | null>(null);
+    const [hourlyData, setHourlyData] = React.useState<any[] | null>(null);
+    const [hourlyLoading, setHourlyLoading] = React.useState(false);
+
+    // Initial load: use props (which are default 30D and today's hourly)
     React.useEffect(() => {
         if (dailyHistorical) {
             setStatsData(dailyHistorical);
         }
     }, [dailyHistorical]);
+
+    React.useEffect(() => {
+        // Sync props to state if no date selected (live view)
+        if (!selectedDate && hourlyHistorical) {
+            setHourlyData(hourlyHistorical);
+        }
+    }, [hourlyHistorical, selectedDate]);
+
+    const handleDateClick = async (dateStr: string) => {
+        if (selectedDate === dateStr) return; // Already selected
+        setSelectedDate(dateStr);
+        setHourlyLoading(true);
+
+        try {
+            const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api/v1';
+            const response = await fetch(`${API_BASE}/dashboard/hourly?date=${dateStr}`, {
+                headers: { 'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}` }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                setHourlyData(result);
+            }
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setHourlyLoading(false);
+        }
+    };
 
     const handleRangeChange = async (newRange: string) => {
         if (newRange === range) return;
@@ -74,13 +108,16 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
                 specificYield: Number((d.daily_energy_kwh / capacity).toFixed(2))
             };
         });
-        const sourceData = hourlyHistorical || historicalData;
-        const trendData = sourceData.map((h: any) => ({
-            label: new Date(h.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+
+        // Use our interactive state or fallback to prop (historical)
+        const sourceData = hourlyData || hourlyHistorical || historicalData;
+
+        const trendData = (sourceData as any[]).map((h: any) => ({
+            label: h.hour ? new Date(h.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '00:00',
             value: Number(h.avg_power) || 0
         }));
         return { trendData, energyData };
-    }, [currentData, historicalData, hourlyHistorical, schools]);
+    }, [currentData, historicalData, hourlyHistorical, hourlyData, schools]);
 
     return (
         <div className="space-y-8 mb-8">
@@ -91,7 +128,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
                         <div>
                             <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">Production History</h3>
                             <h2 className="text-xl font-bold text-slate-900">Total Energy Produced</h2>
-                            <p className="text-slate-500 text-sm">Energy generation summary over time</p>
+                            <p className="text-slate-500 text-sm">Click a bar to view hourly details for that day</p>
                         </div>
                         <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
                             {['1W', '30D', '6M', '1Y'].map((r) => (
@@ -116,7 +153,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
                             </div>
                         )}
                         {statsData && statsData.length > 0 ? (
-                            <DailyHistoryChart data={statsData} />
+                            <DailyHistoryChart data={statsData} onDateClick={handleDateClick} />
                         ) : (
                             <div className="h-64 flex items-center justify-center text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">
                                 No history data available for this range
@@ -125,25 +162,41 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
                     </div>
                 </div>
 
-                {/* Today's Production (Bar) */}
+                {/* Hourly Production (Bar/Line) */}
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 col-span-12">
-                    <div className="mb-6">
-                        <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">Performance Review</h3>
-                        <h2 className="text-xl font-bold text-slate-900">Today's Production</h2>
-                        <p className="text-slate-500 text-sm">Energy generated since midnight</p>
+                    <div className="mb-6 flex justify-between items-center">
+                        <div>
+                            <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">Performance Review</h3>
+                            <h2 className="text-xl font-bold text-slate-900">
+                                {selectedDate
+                                    ? `Production on ${new Date(selectedDate).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}`
+                                    : "Today's Production"
+                                }
+                            </h2>
+                            <p className="text-slate-500 text-sm">
+                                {selectedDate ? 'Hourly output for selected date' : 'Energy generated since midnight'}
+                            </p>
+                        </div>
+                        {selectedDate && (
+                            <button
+                                onClick={() => { setSelectedDate(null); setHourlyData(hourlyHistorical || []); }}
+                                className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1.5 rounded-md"
+                            >
+                                Reset to Today
+                            </button>
+                        )}
                     </div>
-                    <div className="min-h-[320px] w-full">
-                        {energyData.length > 0 ? (
-                            hourlyHistorical && hourlyHistorical.length > 0 ? (
-                                <DailyEnergyChart data={hourlyHistorical} />
-                            ) : (
-                                <div className="h-64 flex items-center justify-center text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">
-                                    Waiting for daily telemetry
-                                </div>
-                            )
+                    <div className="min-h-[320px] w-full relative">
+                        {hourlyLoading && (
+                            <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] flex items-center justify-center z-10">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                            </div>
+                        )}
+                        {hourlyData && hourlyData.length > 0 ? (
+                            <DailyEnergyChart data={hourlyData} />
                         ) : (
                             <div className="h-64 flex items-center justify-center text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">
-                                No current energy data available
+                                No data available for this period
                             </div>
                         )}
                     </div>

@@ -70,8 +70,36 @@ export const dashboardService = {
         };
     },
 
-    async getHourlyHistory(schoolId: string | undefined, interval: string, _legacyTimezone?: string) {
+    async getHourlyHistory(schoolId: string | undefined, interval: string, targetDate?: string) {
         // NOTE: We now ignore the _legacyTimezone param and join schools.timezone directly
+        // If targetDate is provided, we look at that specific day (00:00 - 23:59)
+        // If not, we look at last 48h (default)
+
+        const timeFilter = targetDate
+            ? `date_trunc('day', t.timestamp AT TIME ZONE s.tz) = date_trunc('day', $3::timestamp)`
+            : `t.timestamp >= NOW() - INTERVAL '48 hours'`;
+
+        const bucketStart = targetDate
+            ? `$3::timestamp`
+            : `date_trunc('day', NOW() AT TIME ZONE s.tz)`; // This logic in original was arguably 'start of today' vs 'now - 48h'. 
+        // Actually the original query generate_series was from 'today start' to 'now'.
+        // Let's align: 
+        // targetDate -> Start of that day to End of that day
+        // Default -> Start of Today to Now (or last 48h as per data query)
+
+        // Correction: The original query used `generate_series(date_trunc('day', ...), date_trunc('hour', ...))` 
+        // which implies it showed "Today so far".
+        // The data query used `NOW() - INTERVAL '48 hours'`. 
+        // To support "Show me what happened on [Date]", we need to generate buckets for THAT full day.
+
+        const seriesStart = targetDate
+            ? `$3::timestamp`
+            : `date_trunc('day', NOW() AT TIME ZONE s.tz)`;
+
+        const seriesEnd = targetDate
+            ? `$3::timestamp + INTERVAL '23 hours 59 minutes'`
+            : `date_trunc('hour', NOW() AT TIME ZONE s.tz)`; // Up to current hour
+
         const result = await query(
             `WITH school_tz AS (
                 SELECT id, COALESCE(timezone, 'Asia/Jakarta') as tz FROM public.schools
@@ -79,8 +107,8 @@ export const dashboardService = {
             ),
             time_buckets AS (
                 SELECT s.id as school_id, generate_series(
-                    date_trunc('day', NOW() AT TIME ZONE s.tz), 
-                    date_trunc('hour', NOW() AT TIME ZONE s.tz), 
+                    ${seriesStart}, 
+                    ${seriesEnd}, 
                     $1::interval
                 ) as time_bucket
                 FROM school_tz s
@@ -95,7 +123,7 @@ export const dashboardService = {
                     0 as day_export_cum
                 FROM public.telemetry t
                 JOIN school_tz s ON t.school_id = s.id
-                WHERE t.timestamp >= NOW() - INTERVAL '48 hours' 
+                WHERE ${timeFilter}
                 AND ($2::uuid IS NULL OR t.school_id = $2::uuid)
                 GROUP BY 1, 2
             ),
@@ -124,11 +152,8 @@ export const dashboardService = {
                 COALESCE(sys_avg_export, 0) as avg_export_power,
                 GREATEST(COALESCE(energy_delta, sys_avg_power, 0), 0) as energy
             FROM hourly_deltas
-            WHERE time_bucket >= (
-                SELECT MIN(date_trunc('day', NOW() AT TIME ZONE tz)) FROM school_tz
-            )
             ORDER BY time_bucket ASC`,
-            [interval, schoolId || null]
+            targetDate ? [interval, schoolId || null, targetDate] : [interval, schoolId || null]
         );
 
         return result.rows.map(row => ({

@@ -7,9 +7,10 @@ import * as echarts from 'echarts';
 
 interface DailyHistoryChartProps {
     data: { date: string; total_energy_kwh: number }[];
+    onDateClick?: (date: string) => void;
 }
 
-export const DailyHistoryChart: React.FC<DailyHistoryChartProps> = ({ data }) => {
+export const DailyHistoryChart: React.FC<DailyHistoryChartProps> = ({ data, onDateClick }) => {
     if (!data || data.length === 0 || data.every(d => d.total_energy_kwh === 0)) {
         return (
             <div className="h-[320px] flex items-center justify-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
@@ -84,5 +85,15 @@ export const DailyHistoryChart: React.FC<DailyHistoryChartProps> = ({ data }) =>
         ]
     };
 
-    return <ReactECharts option={option} style={{ height: '320px', width: '100%' }} />;
+    const onChartClick = (params: any) => {
+        if (onDateClick && params.componentType === 'series' && params.name) {
+            onDateClick(params.name);
+        }
+    };
+
+    const onEvents = {
+        'click': onChartClick
+    };
+
+    return <ReactECharts option={option} style={{ height: '320px', width: '100%' }} onEvents={onEvents} />;
 };

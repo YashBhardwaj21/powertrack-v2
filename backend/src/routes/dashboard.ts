@@ -31,10 +31,10 @@ router.get('/summary', authenticateToken, async (req: Request, res: Response) =>
 
         // 2. Fetch System Params & Config (Fast)
         const params = await dashboardService.getSystemParams(['electricity_rate_idr', 'carbon_intensity_kg_per_kwh', 'default_irr_percent', 'feed_in_tariff_idr']);
-        const TARIFF = params.electricity_rate_idr || BUSINESS_LOGIC.DEFAULT_ELECTRICITY_RATE_IDR;
-        const CARBON_FACTOR = params.carbon_intensity_kg_per_kwh || BUSINESS_LOGIC.DEFAULT_CARBON_INTENSITY_KG;
-        const DEFAULT_IRR = params.default_irr_percent || BUSINESS_LOGIC.DEFAULT_IRR_PERCENT;
-        const EXPORT_TARIFF = params.feed_in_tariff_idr || BUSINESS_LOGIC.DEFAULT_FEED_IN_TARIFF_IDR;
+        const TARIFF = params?.electricity_rate_idr || BUSINESS_LOGIC.DEFAULT_ELECTRICITY_RATE_IDR;
+        const CARBON_FACTOR = params?.carbon_intensity_kg_per_kwh || BUSINESS_LOGIC.DEFAULT_CARBON_INTENSITY_KG;
+        const DEFAULT_IRR = params?.default_irr_percent || BUSINESS_LOGIC.DEFAULT_IRR_PERCENT;
+        const EXPORT_TARIFF = params?.feed_in_tariff_idr || BUSINESS_LOGIC.DEFAULT_FEED_IN_TARIFF_IDR;
 
         // 3. Parallel Data Fetching (Crash Immunity)
         const granularity = req.query.granularity === '15min' ? '15 minutes' : '1 hour';
@@ -131,12 +131,36 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
         res.json({
             leaderboard,
             metadata: {
-                carbon_intensity_kg_per_kwh: params.carbon_intensity_kg_per_kwh || 0.85,
-                electricity_rate_idr: params.electricity_rate_idr || 1500
+                carbon_intensity_kg_per_kwh: params?.carbon_intensity_kg_per_kwh || 0.85,
+                electricity_rate_idr: params?.electricity_rate_idr || 1500
             }
         });
     } catch (error) {
         console.error('Leaderboard error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/* =========================================================
+   HOURLY HISTORY (For Interactive Charts)
+   GET /dashboard/hourly?date=2024-01-01
+========================================================= */
+router.get('/hourly', authenticateToken, async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        let schoolId = req.query.school_id as string | undefined;
+        const date = req.query.date as string | undefined;
+
+        if (user.role !== 'admin') {
+            schoolId = user.school_id;
+        }
+
+        const granularity = '1 hour'; // Or 15 min if you prefer
+        const hourlyStats = await dashboardService.getHourlyHistory(schoolId, granularity, date);
+
+        res.json(hourlyStats);
+    } catch (error) {
+        console.error('Hourly history error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

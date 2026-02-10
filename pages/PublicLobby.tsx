@@ -78,44 +78,60 @@ export const PublicLobby: React.FC = () => {
             loadGraphData();
         }, 60000);
 
-        // Live Sync for Public Lobby
-        const ws = new WebSocket(WS_URL);
+        // Live Sync for Public Lobby (Auto-Reconnecting)
+        let ws: WebSocket | null = null;
+        let reconnectTimeout: NodeJS.Timeout;
 
-        ws.onopen = () => {
-            console.log('✅ Public Live Sync Connected');
-            ws.send(JSON.stringify({ type: 'subscribe', schoolId: 'all' }));
+        const connectWebSocket = () => {
+            ws = new WebSocket(WS_URL);
+
+            ws.onopen = () => {
+                console.log('✅ Public Live Sync Connected');
+                ws?.send(JSON.stringify({ type: 'subscribe', schoolId: 'all' }));
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+
+                    if (msg.type === 'telemetry_update') {
+                        const update = msg.data;
+                        // 🔥 optimistically update the leaderboard for instant feedback
+                        setLeaderboard(prev => prev.map(school => {
+                            if (school.school_id === update.school_id) {
+                                return {
+                                    ...school,
+                                    total_energy_kwh: Math.max(Number(school.total_energy_kwh || 0), Number(update.total_energy_kwh || 0)),
+                                    today_energy_kwh: Math.max(Number(school.today_energy_kwh || 0), Number(update.daily_energy_kwh || 0)),
+                                };
+                            }
+                            return school;
+                        }).sort((a, b) => Number(b.total_energy_kwh) - Number(a.total_energy_kwh)));
+                    }
+                    else if (msg.type === 'school_created') {
+                        loadData();
+                    }
+                } catch (e) {
+                    console.error('WS Parse Error', e);
+                }
+            };
+
+            ws.onclose = () => {
+                console.warn('⚠️ Public Live Sync Disconnected. Reconnecting in 3s...');
+                reconnectTimeout = setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = (err) => {
+                console.error('❌ WS Error:', err);
+                ws?.close(); // Ensure onclose is triggered
+            };
         };
 
-        ws.onmessage = (event) => {
-            try {
-                const msg = JSON.parse(event.data);
-
-                if (msg.type === 'telemetry_update') {
-                    const update = msg.data;
-                    // 🔥 optimistically update the leaderboard for instant feedback
-                    setLeaderboard(prev => prev.map(school => {
-                        if (school.school_id === update.school_id) {
-                            return {
-                                ...school,
-                                total_energy_kwh: update.total_energy_kwh,
-                                today_energy_kwh: update.daily_energy_kwh,
-                                // Trigger re-render of CO2 and Yield via these changes
-                            };
-                        }
-                        return school;
-                    }).sort((a, b) => b.total_energy_kwh - a.total_energy_kwh)); // Re-sort live? Maybe distraction, but accurate.
-                }
-                else if (msg.type === 'school_created') {
-                    // New school needs full fetch to get name, capacity, etc.
-                    loadData();
-                }
-            } catch (e) {
-                console.error('WS Parse Error', e);
-            }
-        };
+        connectWebSocket();
 
         return () => {
-            ws.close();
+            if (ws) ws.close();
+            clearTimeout(reconnectTimeout);
             clearInterval(dataInterval);
             clearInterval(graphInterval);
         };
@@ -254,7 +270,7 @@ export const PublicLobby: React.FC = () => {
 
                                                         return (
                                                             <tr
-                                                                key={idx}
+                                                                key={item.school_id || idx}
                                                                 className="hover:bg-slate-50 transition-colors group"
                                                             >
                                                                 <td className="px-8 py-6 text-center">

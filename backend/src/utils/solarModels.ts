@@ -129,3 +129,84 @@ export function loadFactor(hour: number): number {
     if (hour < 21) return 0.6;
     return 0.4;
 }
+
+// ═══════════ STATELESS ENERGY CALCULATION ═══════════
+/**
+ * Calculates how much energy a system *should* have produced/exported by a given time of day.
+ * This integrates the solar curve AND load curve from Sunrise to CurrentTime.
+ */
+/**
+ * Calculates how much energy a system *should* have produced/exported by a given time of day.
+ * This integrates the solar curve AND load curve from Sunrise to CurrentTime.
+ * Uses a small step size for precision + partial step for exact time handling.
+ */
+export function calculateEnergyForTime(
+    hour: number,
+    capacityKw: number,
+    lat: number,
+    dayOfYear: number,
+    weather: string
+) {
+    const { sunrise, sunset } = getSunriseSunset(lat, dayOfYear);
+
+    // 1. If before sunrise, 0 energy
+    if (hour < sunrise) return { produced: 0, exported: 0, imported: 0, selfConsumed: 0 };
+
+    // 2. If after sunset, we just take the full day's production (calculated at sunset)
+    const effectiveHour = Math.min(hour, sunset);
+
+    // 3. Integration (Riemann Sum with Partial Step)
+    let totalGeneratedKwh = 0;
+    let totalExportedKwh = 0;
+    let totalImportedKwh = 0;
+    let totalSelfConsumedKwh = 0;
+
+    const baseLoad = getBaseLoad(capacityKw); // Deterministic load baseline
+    const stepSizeHours = 0.05; // 3 minutes standard step
+
+    let t = sunrise;
+    while (t < effectiveHour) {
+        // Determine the size of *this* step (standard or partial remainder)
+        const currentStepSize = Math.min(stepSizeHours, effectiveHour - t);
+
+        // Use midpoint for better accuracy, or just start point
+        const evalTime = t + (currentStepSize / 2);
+
+        const daylight = daylightFactor(evalTime, lat, dayOfYear);
+        const irradiance = calcIrradiance(daylight, 1.0); // Weather applied later scaling
+
+        // Power Generation (kW)
+        const efficiency = 0.85;
+        const solarKw = (capacityKw * (irradiance / 1000) * efficiency);
+
+        // Load Consumption (kW)
+        const currentLoadKw = Math.max(baseLoad * 0.35, baseLoad * loadFactor(evalTime));
+
+        // Energy Steps (kWh)
+        const energyStep = solarKw * currentStepSize;
+        const loadStep = currentLoadKw * currentStepSize;
+
+        // Instantaneous Flow
+        const selfConsumedStep = Math.min(energyStep, loadStep);
+        const exportedStep = Math.max(0, energyStep - loadStep);
+        const importedStep = Math.max(0, loadStep - energyStep);
+
+        totalGeneratedKwh += energyStep;
+        totalExportedKwh += exportedStep;
+        totalImportedKwh += importedStep;
+        totalSelfConsumedKwh += selfConsumedStep;
+
+        t += currentStepSize;
+    }
+
+    // Apply Weather Factor globally for the day
+    const weatherMult = WEATHER_FACTOR[weather] || 1.0;
+
+    // Solar is affected by weather, Load is usually not (or less so)
+    return {
+        produced: Number((totalGeneratedKwh * weatherMult).toFixed(4)),
+        exported: Number((totalExportedKwh * weatherMult).toFixed(4)), // Export scales with gen
+        imported: Number(totalImportedKwh.toFixed(4)), // Import might actually increase if solar drops? Simplifying for 'stateless'
+        selfConsumed: Number((totalSelfConsumedKwh * weatherMult).toFixed(4))
+    };
+}

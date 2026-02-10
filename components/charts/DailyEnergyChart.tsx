@@ -8,9 +8,10 @@ import { BarChart3 } from 'lucide-react';
 interface DailyEnergyChartProps {
     // Data shape: { hour: string (ISO), avg_power: number, energy: number ... }
     data: Array<{ hour: string; avg_power: number; energy: number }>;
+    timezone?: string; // School's IANA timezone
 }
 
-export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data }) => {
+export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data, timezone = 'Asia/Jakarta' }) => {
     // 1. Data Processing: Smart Date Selection
     const { chartCategories, chartValues, displayedDate } = useMemo(() => {
         // Initialize 24-hour buckets
@@ -41,19 +42,9 @@ export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data }) => {
         yesterday.setDate(now.getDate() - 1);
         const yesterdayKey = yesterday.toLocaleDateString();
 
-        let targetKey = todayKey;
-        let targetData = dataByDate.get(todayKey) || [];
-
-        // Calculate total energy for Today
-        const totalToday = targetData.reduce((sum, p) => sum + (Number(p.avg_power) || 0), 0);
-
-        // If Today is practically empty (e.g. just after midnight) AND Yesterday has data, show Yesterday
-        if (totalToday < 0.1 && dataByDate.has(yesterdayKey)) {
-            targetKey = yesterdayKey;
-            targetData = dataByDate.get(yesterdayKey)!;
-        }
-        // Fallback: If neither, pick the date with most data? Or stick to Today (empty).
-        // Let's stick to the selected logic (Today -> Yesterday -> Today Empty)
+        const targetKey = todayKey;
+        const targetData = dataByDate.get(todayKey) || [];
+        // Always show today, even if empty (midnight scenario)
 
         const values = new Array(24).fill(0);
         const targetDateObj = new Date(targetData.length > 0 ? targetData[0].hour : now);
@@ -62,7 +53,7 @@ export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data }) => {
             const pDate = new Date(p.hour);
             const hour = pDate.getHours();
             if (hour >= 0 && hour < 24) {
-                values[hour] += Number(p.avg_power) || 0;
+                values[hour] += Number(p.energy) || 0;
             }
         });
 
@@ -170,7 +161,10 @@ export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data }) => {
                         color: '#fff',
                         backgroundColor: '#1e293b',
                         borderRadius: 4,
-                        padding: [4, 8]
+                        padding: [4, 8],
+                        formatter: (params: any) => {
+                            return params.value.toFixed(2);
+                        }
                     }
                 }
             }

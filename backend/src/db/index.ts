@@ -18,29 +18,48 @@ import { logger } from '../utils/logger.js';
 // Create PostgreSQL connection pool
 export const pool = new Pool(poolConfig);
 
-// Test database connection
+// Pool health monitoring
 pool.on('connect', () => {
-    logger.debug('✅ Database connected successfully');
+    logger.info('✅ DB pool connected');
 });
 
 pool.on('error', (err) => {
-    logger.error({ err }, '❌ Unexpected database error (trying to recover)');
-    // process.exit(-1); // Don't crash on transient connection errors
+    logger.error({ err }, '❌ DB pool error');
 });
 
-// Helper function to execute queries
+pool.on('remove', () => {
+    logger.debug('Client removed from pool');
+});
+
+// Log pool stats periodically (every minute)
+setInterval(() => {
+    logger.debug({
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount
+    }, '📊 DB Pool Stats');
+}, 60000);
+
+// Helper function to execute queries with enhanced logging
 export const query = async (text: string, params?: any[]) => {
     const start = Date.now();
     try {
         const res = await pool.query(text, params);
         const duration = Date.now() - start;
-        // Optimization: Only log slow queries (>100ms) or in dev mode to reduce noise
-        if (duration > 100 || config.nodeEnv === 'development') {
-            logger.debug({ text, duration, rows: res.rowCount }, 'Executed query');
+
+        // Log slow queries (>1000ms)
+        if (duration > 1000) {
+            logger.warn({ duration, query: text.substring(0, 100) }, 'Slow query');
         }
+
+        // Debug logging in development
+        if (config.nodeEnv === 'development' && duration > 100) {
+            logger.debug({ text: text.substring(0, 100), duration, rows: res.rowCount }, 'Executed query');
+        }
+
         return res;
     } catch (error) {
-        logger.error({ err: error, text }, 'Database query error');
+        logger.error({ err: error, query: text.substring(0, 100) }, 'Query error');
         throw error;
     }
 };

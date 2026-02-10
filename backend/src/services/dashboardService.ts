@@ -119,7 +119,7 @@ export const dashboardService = {
                     t.school_id,
                     AVG(t.ac_power_kw) as avg_power,
                     AVG(t.grid_export_kw) as avg_export_kw,
-                    MAX(t.daily_energy_kwh) as day_energy_cum,
+                    MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh) as hourly_energy,
                     0 as day_export_cum
                 FROM public.telemetry t
                 JOIN school_tz s ON t.school_id = s.id
@@ -132,26 +132,17 @@ export const dashboardService = {
                     tb.time_bucket,
                     SUM(COALESCE(psh.avg_power, 0)) as sys_avg_power,
                     SUM(COALESCE(psh.avg_export_kw, 0)) as sys_avg_export,
-                    SUM(COALESCE(psh.day_energy_cum, 0)) as sys_day_energy_cum
+                    SUM(COALESCE(psh.hourly_energy, 0)) as sys_hourly_energy
                 FROM time_buckets tb
                 LEFT JOIN per_school_hourly psh ON tb.time_bucket = psh.time_bucket AND tb.school_id = psh.school_id
                 GROUP BY 1
-            ),
-            hourly_deltas AS (
-                SELECT 
-                    time_bucket,
-                    sys_avg_power,
-                    sys_avg_export,
-                    sys_day_energy_cum,
-                    sys_day_energy_cum - LAG(sys_day_energy_cum) OVER (ORDER BY time_bucket) as energy_delta
-                FROM system_hourly
             )
             SELECT 
                 time_bucket as hour,
                 COALESCE(sys_avg_power, 0) as avg_power,
                 COALESCE(sys_avg_export, 0) as avg_export_power,
-                GREATEST(COALESCE(energy_delta, sys_avg_power, 0), 0) as energy
-            FROM hourly_deltas
+                GREATEST(COALESCE(sys_hourly_energy, 0), 0) as energy
+            FROM system_hourly
             ORDER BY time_bucket ASC`,
             targetDate ? [interval, schoolId || null, targetDate] : [interval, schoolId || null]
         );
@@ -181,18 +172,19 @@ export const dashboardService = {
                 ) as date
                 FROM school_tz s
             ),
-            -- 1. Aggregated History (Fast)
+            -- 1. Aggregated History (Fast) - Exclude today to prevent duplication
             aggregated_daily AS (
                 SELECT school_id, day, daily_energy_kwh
                 FROM public.telemetry_daily
                 WHERE day >= (CURRENT_DATE - INTERVAL '30 days')
+                  AND day < CURRENT_DATE
             ),
             -- 2. Live Today (Real-time)
             live_today AS (
                 SELECT 
                     t.school_id, 
                     DATE(t.timestamp AT TIME ZONE s.tz) as day, 
-                    MAX(t.daily_energy_kwh) as daily_energy_kwh
+                    MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh) as daily_energy_kwh
                 FROM public.telemetry t
                 JOIN school_tz s ON t.school_id = s.id
                 WHERE t.timestamp >= NOW() - INTERVAL '24 hours' -- Optimization: Limit scan
@@ -250,7 +242,7 @@ export const dashboardService = {
              live_today AS (
                 SELECT 
                     t.school_id, 
-                    MAX(t.daily_energy_kwh) as daily_energy_kwh, 
+                    MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh) as daily_energy_kwh, 
                     MAX(t.daily_export_kwh) as daily_export_kwh
                 FROM public.telemetry t
                 JOIN school_tz s ON t.school_id = s.id
@@ -378,9 +370,12 @@ export const dashboardService = {
     async getLeaderboardStats() {
         const result = await query(
             `WITH daily_yields AS (
-                SELECT school_id, DATE(timestamp) as production_date, MAX(daily_energy_kwh) as day_total
-                FROM public.telemetry
-                GROUP BY school_id, production_date
+                SELECT t.school_id, 
+                       DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')) as production_date, 
+                       MAX(t.daily_energy_kwh) as day_total
+                FROM public.telemetry t
+                JOIN public.schools s ON t.school_id = s.id
+                GROUP BY t.school_id, production_date
             ),
             school_aggregates AS (
                 SELECT school_id, SUM(day_total) as calculated_total_yield
@@ -388,7 +383,7 @@ export const dashboardService = {
                 GROUP BY school_id
             ),
             today_metrics AS (
-                SELECT school_id, MAX(daily_energy_kwh) as daily_energy_kwh
+                SELECT school_id, MAX(daily_energy_kwh) - MIN(daily_energy_kwh) as daily_energy_kwh
                 FROM public.telemetry
                 WHERE timestamp >= CURRENT_DATE
                 GROUP BY school_id

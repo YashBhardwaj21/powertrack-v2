@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { query } from '../db/index.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { validateUUID } from '../middleware/validateUUID.js';
 import { dashboardService } from '../services/dashboardService.js';
 import { BUSINESS_LOGIC } from '../config/constants.js';
 import { DashboardSummary } from '../types/index.js';
@@ -10,7 +11,7 @@ const router = express.Router();
 /* =========================================================
    DASHBOARD SUMMARY (Refactored)
 ========================================================= */
-router.get('/summary', authenticateToken, async (req: Request, res: Response) => {
+router.get('/summary', authenticateToken, validateUUID('school_id'), async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
         let schoolId = req.query.school_id as string | undefined;
@@ -100,6 +101,7 @@ router.get('/summary', authenticateToken, async (req: Request, res: Response) =>
             metadata: {
                 electricity_rate_idr: TARIFF,
                 carbon_intensity_kg_per_kwh: CARBON_FACTOR,
+                school_timezone: schools.find(s => s.id === schoolId)?.timezone || 'Asia/Jakarta',
             },
             hourly_historical,
             historical_data: daily_historical, // Back-compat
@@ -145,7 +147,7 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
    HOURLY HISTORY (For Interactive Charts)
    GET /dashboard/hourly?date=2024-01-01
 ========================================================= */
-router.get('/hourly', authenticateToken, async (req: Request, res: Response) => {
+router.get('/hourly', authenticateToken, validateUUID('school_id'), async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
         let schoolId = req.query.school_id as string | undefined;
@@ -241,7 +243,7 @@ router.get('/analytics', authenticateToken, async (req: Request, res: Response) 
         const historyResult = await query(
             `WITH days AS (SELECT generate_series($1::timestamp, $2::timestamp, '1 day'::interval) as date),
             per_school_daily AS (
-                SELECT DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')) as date_key, MAX(t.daily_energy_kwh) as daily_energy, MAX(t.ac_power_kw) as peak_power
+                SELECT DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')) as date_key, MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh) as daily_energy, MAX(t.ac_power_kw) as peak_power
                 FROM public.telemetry t
                 JOIN public.schools s ON t.school_id = s.id
                 WHERE t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $3' : ''}

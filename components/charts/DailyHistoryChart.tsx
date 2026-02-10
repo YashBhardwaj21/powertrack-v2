@@ -4,13 +4,15 @@ import { formatEnergy } from '../../utils/formatters';
 import { EmptyState } from '../ui/EmptyState';
 import { BarChart3 } from 'lucide-react';
 import * as echarts from 'echarts';
+import { formatDateInSchoolTZ } from '../../utils/timezone';
 
 interface DailyHistoryChartProps {
     data: { date: string; total_energy_kwh: number }[];
     onDateClick?: (date: string) => void;
+    timezone?: string; // School's IANA timezone
 }
 
-export const DailyHistoryChart: React.FC<DailyHistoryChartProps> = ({ data, onDateClick }) => {
+export const DailyHistoryChart: React.FC<DailyHistoryChartProps> = ({ data, onDateClick, timezone = 'Asia/Jakarta' }) => {
     if (!data || data.length === 0 || data.every(d => d.total_energy_kwh === 0)) {
         return (
             <div className="h-[320px] flex items-center justify-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
@@ -29,11 +31,7 @@ export const DailyHistoryChart: React.FC<DailyHistoryChartProps> = ({ data, onDa
             axisPointer: { type: 'shadow' },
             formatter: (params: any) => {
                 const p = params[0];
-                const date = new Date(p.name).toLocaleDateString(undefined, {
-                    weekday: 'short',
-                    month: 'short',
-                    day: 'numeric'
-                });
+                const date = formatDateInSchoolTZ(p.name, timezone);
                 return `<div class="font-bold mb-1">${date}</div>
                         <div class="text-sm">Energy: ${formatEnergy(p.value)}</div>`;
             }
@@ -50,7 +48,12 @@ export const DailyHistoryChart: React.FC<DailyHistoryChartProps> = ({ data, onDa
             axisLabel: {
                 color: '#64748b',
                 formatter: (value: string) => {
-                    return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                    const d = new Date(value);
+                    return d.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        timeZone: timezone
+                    });
                 }
             },
             axisLine: { show: false },

@@ -1,10 +1,12 @@
 import React from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Brush, Legend } from 'recharts';
 import { Activity, Zap, Info } from 'lucide-react';
+import { formatTimeInSchoolTZ } from '../utils/timezone';
 
 interface PublicEnergyChartProps {
     data: any[];
     loading: boolean;
+    timezone?: string; // School's IANA timezone
 }
 
 // Fixed color palette for schools
@@ -21,7 +23,7 @@ const COLORS = [
     '#d946ef', // Fuchsia 500
 ];
 
-export const PublicEnergyChart: React.FC<PublicEnergyChartProps> = ({ data, loading }) => {
+export const PublicEnergyChart: React.FC<PublicEnergyChartProps> = ({ data, loading, timezone = 'Asia/Jakarta' }) => {
     // Extract school names from first data point keys, excluding 'timestamp'
     const schoolNames = data.length > 0
         ? Object.keys(data[0]).filter(key => key !== 'timestamp')
@@ -35,7 +37,7 @@ export const PublicEnergyChart: React.FC<PublicEnergyChartProps> = ({ data, load
             return (
                 <div className="bg-slate-900/95 text-white p-4 rounded-lg shadow-xl border border-slate-700 max-w-[280px]">
                     <p className="text-slate-400 text-xs mb-3 font-mono border-b border-slate-800 pb-2">
-                        {new Date(label).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {formatTimeInSchoolTZ(label, timezone)} ({new Date(label).toLocaleDateString('en-US', { weekday: 'short', timeZone: timezone })})
                     </p>
                     <div className="space-y-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
                         {sorted.map((item: any, idx: number) => (
@@ -100,7 +102,7 @@ export const PublicEnergyChart: React.FC<PublicEnergyChartProps> = ({ data, load
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                             <XAxis
                                 dataKey="timestamp"
-                                tickFormatter={(str) => new Date(str).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                tickFormatter={(str) => formatTimeInSchoolTZ(str, timezone)}
                                 stroke="#94a3b8"
                                 fontSize={11}
                                 tickMargin={10}

@@ -121,7 +121,7 @@ const safeSend = (ws: WebSocket, payload: any) => {
 // =========================================================
 
 const lastBroadcastTimes = new Map<string, number>();
-const BROADCAST_THROTTLE_MS = 2000;
+const BROADCAST_THROTTLE_MS = 1000; // 1 second
 const broadcastTimers = new Map<string, NodeJS.Timeout>();
 
 export const broadcastTelemetryUpdate = (telemetryData: any) => {

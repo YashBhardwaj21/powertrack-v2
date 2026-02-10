@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import { Telemetry, HistoricalData, School } from '../types';
 import { DailyEnergyChart } from './charts/DailyEnergyChart';
 import { DailyHistoryChart } from './charts/DailyHistoryChart';
+import { formatTimeInSchoolTZ, formatDateInSchoolTZ } from '../utils/timezone';
 
 interface PerformanceChartsProps {
     currentData: Telemetry[];
@@ -10,9 +11,10 @@ interface PerformanceChartsProps {
     hourlyHistorical?: Array<{ hour: string; avg_power: number; energy: number }>;
     dailyHistorical?: Array<{ date: string; total_energy_kwh: number }>; // New prop
     schools: School[];
+    timezone?: string; // School's IANA timezone
 }
 
-export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({ currentData, historicalData, hourlyHistorical, dailyHistorical, schools }) => {
+export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({ currentData, historicalData, hourlyHistorical, dailyHistorical, schools, timezone = 'Asia/Jakarta' }) => {
     const [range, setRange] = React.useState('30D');
     const [statsData, setStatsData] = React.useState<any[] | null>(null);
     const [loading, setLoading] = React.useState(false);
@@ -113,7 +115,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
         const sourceData = hourlyData || hourlyHistorical || historicalData;
 
         const trendData = (sourceData as any[]).map((h: any) => ({
-            label: h.hour ? new Date(h.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '00:00',
+            label: h.hour ? formatTimeInSchoolTZ(h.hour, timezone) : '00:00',
             value: Number(h.avg_power) || 0
         }));
         return { trendData, energyData };
@@ -169,7 +171,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
                             <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">Performance Review</h3>
                             <h2 className="text-xl font-bold text-slate-900">
                                 {selectedDate
-                                    ? `Production on ${new Date(selectedDate).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}`
+                                    ? `Production on ${formatDateInSchoolTZ(selectedDate, timezone)}`
                                     : "Today's Production"
                                 }
                             </h2>

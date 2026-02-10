@@ -96,13 +96,13 @@ export const PublicLobby: React.FC = () => {
 
                     if (msg.type === 'telemetry_update') {
                         const update = msg.data;
-                        // 🔥 optimistically update the leaderboard for instant feedback
+                        // Update leaderboard with real-time values from backend
                         setLeaderboard(prev => prev.map(school => {
                             if (school.school_id === update.school_id) {
                                 return {
                                     ...school,
-                                    total_energy_kwh: Math.max(Number(school.total_energy_kwh || 0), Number(update.total_energy_kwh || 0)),
-                                    today_energy_kwh: Math.max(Number(school.today_energy_kwh || 0), Number(update.daily_energy_kwh || 0)),
+                                    total_energy_kwh: Number(update.total_energy_kwh || 0),
+                                    today_energy_kwh: Number(update.daily_energy_kwh || 0),
                                 };
                             }
                             return school;

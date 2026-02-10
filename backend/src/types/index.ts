@@ -46,6 +46,7 @@ export interface School {
     api_key: string | null;
     api_key_hashed: string | null;
     device_profile_id: string | null;
+    timezone?: string | null; // IANA timezone string
     created_at: Date;
     updated_at: Date;
 }
@@ -111,6 +112,7 @@ export interface DashboardSummary {
     metadata: {
         electricity_rate_idr: number;
         carbon_intensity_kg_per_kwh: number;
+        school_timezone?: string; // IANA timezone for current school
     };
     // Standardized Historical Data
     daily_historical: Array<{ date: string; total_energy_kwh: number }>;

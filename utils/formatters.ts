@@ -85,3 +85,53 @@ export const formatLastUpdated = (date: string | Date | undefined | null): strin
 
     return d.toLocaleDateString();
 };
+
+// Format relative time with timezone support
+export const formatLastUpdatedTZ = (
+    date: string | Date | undefined | null,
+    timezone: string = 'Asia/Jakarta'
+): string => {
+    if (!date) return 'Never updated';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return 'Invalid date';
+
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+
+    // Format as HH:MM in school's timezone if recent
+    const timeFormatter = new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+        timeZone: timezone
+    });
+
+    return timeFormatter.format(d);
+};
+
+// Format time in school timezone (always shows actual time, no relative format)
+export const formatTimestampInSchoolTZ = (
+    date: string | Date | undefined | null,
+    timezone: string = 'Asia/Jakarta'
+): string => {
+    if (!date) return '---';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return 'Invalid';
+
+    const timeFormatter = new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+        timeZone: timezone
+    });
+
+    return timeFormatter.format(d);
+};
+
+

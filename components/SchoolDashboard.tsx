@@ -1,7 +1,8 @@
-import React, { useContext, useMemo } from 'react';
+import React, { useContext } from 'react';
 import { AuthContext } from '../App';
 import { useDashboard } from '../context/DashboardContext';
 import { formatPower, formatEnergy, formatCO2, formatPercentage, formatLastUpdated } from '../utils/formatters';
+import { isFresh } from '../utils/timezone';
 import { PowerFlowChart } from './charts/PowerFlowChart';
 import {
     Zap, Home, ArrowRightLeft, Leaf, Calendar, CheckCircle2, AlertTriangle,
@@ -56,8 +57,8 @@ export const SchoolDashboard: React.FC = () => {
     const lifetimeEnergy = Number(lifetimeStats?.total_energy_kwh) || 0;
     const lifetimeCO2 = lifetimeEnergy * co2Factor;
 
-    // 4. Component Status Logic (Mock/Heuristic for now)
-    const isOnline = latestTelemetry && (Date.now() - new Date(latestTelemetry.timestamp).getTime()) < 5 * 60 * 1000; // 5 mins
+    // 4. Component Status Logic (using timezone-aware freshness check)
+    const isOnline = latestTelemetry && isFresh(latestTelemetry.timestamp, 5 * 60 * 1000); // 5 mins
     const inverterStatus = isOnline ? 'ok' : 'error';
     const sensorStatus = isOnline ? 'ok' : 'warning';
 
@@ -183,7 +184,7 @@ export const SchoolDashboard: React.FC = () => {
                         <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Live Power Flow (24h)</h3>
                     </div>
                     <div className="h-[320px]">
-                        <PowerFlowChart data={chartData} />
+                        <PowerFlowChart data={chartData} timezone={data?.metadata?.school_timezone} />
                     </div>
                 </div>
 

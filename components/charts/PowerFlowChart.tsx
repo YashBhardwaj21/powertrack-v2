@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import * as echarts from 'echarts';
+import { formatTimeInSchoolTZ } from '../../utils/timezone';
 
 interface PowerFlowChartProps {
     data: Array<{
@@ -10,14 +11,15 @@ interface PowerFlowChartProps {
         avg_import: number; // Grid Import
         avg_export: number; // Grid Export
     }>;
+    timezone?: string; // School's IANA timezone
 }
 
-export const PowerFlowChart: React.FC<PowerFlowChartProps> = ({ data }) => {
+export const PowerFlowChart: React.FC<PowerFlowChartProps> = ({ data, timezone = 'Asia/Jakarta' }) => {
     const chartOption = useMemo(() => {
         if (!data || data.length === 0) return null;
 
-        // Transform data for plotting
-        const times = data.map(d => new Date(d.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        // Transform data for plotting - use school timezone
+        const times = data.map(d => formatTimeInSchoolTZ(d.hour, timezone));
         const solar = data.map(d => d.avg_power || 0);
         const load = data.map(d => d.avg_load || 0);
 
@@ -64,13 +66,24 @@ export const PowerFlowChart: React.FC<PowerFlowChartProps> = ({ data }) => {
             legend: {
                 data: ['Solar Generation', 'Load Consumption', 'Grid Interaction'],
                 bottom: 0,
-                icon: 'circle'
+                left: 'center',
+                orient: 'horizontal',
+                icon: 'circle',
+                itemGap: 10,
+                textStyle: {
+                    fontSize: 11,
+                    color: '#64748b'
+                },
+                // Stack vertically on very small screens
+                width: '100%',
+                itemWidth: 12,
+                itemHeight: 12
             },
             grid: {
-                left: '2%',
-                right: '2%',
-                bottom: '10%',
-                top: '5%',
+                left: '5%',
+                right: '5%',
+                bottom: '18%',
+                top: '8%',
                 containLabel: true
             },
             xAxis: {
@@ -79,11 +92,21 @@ export const PowerFlowChart: React.FC<PowerFlowChartProps> = ({ data }) => {
                 data: times,
                 axisLine: { show: false },
                 axisTick: { show: false },
-                axisLabel: { color: '#94a3b8' }
+                axisLabel: {
+                    color: '#94a3b8',
+                    fontSize: 10,
+                    interval: 'auto',
+                    hideOverlap: true,
+                    rotate: 0
+                }
             },
             yAxis: {
                 type: 'value',
-                axisLabel: { color: '#94a3b8', formatter: '{value} kW' },
+                axisLabel: {
+                    color: '#94a3b8',
+                    formatter: '{value} kW',
+                    fontSize: 10
+                },
                 splitLine: { lineStyle: { type: 'dashed', color: '#f1f5f9' } }
             },
             series: [
@@ -122,7 +145,7 @@ export const PowerFlowChart: React.FC<PowerFlowChartProps> = ({ data }) => {
                 }
             ]
         };
-    }, [data]);
+    }, [data, timezone]);
 
     if (!data || data.length === 0) {
         return (

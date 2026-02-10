@@ -9,6 +9,7 @@ import { DeviceWizard } from '../components/DeviceWizard';
 import { useDashboard } from '../context/DashboardContext';
 import { User } from '../types';
 import { useToast } from '../context/ToastContext';
+import { formatTimestampInSchoolTZ } from '../utils/formatters';
 
 // Helper for archiving (Move to dataService in production)
 const archiveSchool = async (id: string) => {
@@ -356,7 +357,7 @@ export const ControlRoom: React.FC = () => {
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4 text-xs text-slate-500 font-medium">
-                                                    {lt ? new Date(lt.timestamp).toLocaleTimeString() : '---'}
+                                                    {lt ? formatTimestampInSchoolTZ(lt.timestamp, s.timezone || 'Asia/Jakarta') : '---'}
                                                 </td>
                                                 {isAdmin && (
                                                     <td className="px-6 py-4">

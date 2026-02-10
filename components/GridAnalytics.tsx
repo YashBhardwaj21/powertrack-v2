@@ -4,15 +4,17 @@ import { HistoricalData, Telemetry, School } from '../types';
 import { Zap, Home, ArrowRightLeft, Clock, ZoomIn } from 'lucide-react';
 import { EmptyState } from './ui/EmptyState';
 import { useDashboard } from '../context/DashboardContext';
+import { formatTimeInSchoolTZ } from '../utils/timezone';
 
 interface GridAnalyticsProps {
     currentData: Telemetry[];
     historicalData: HistoricalData[]; // Daily data (legacy name)
     hourlyHistorical?: Array<{ hour: string; avg_power: number; energy: number; avg_load: number; avg_import: number; avg_export: number }>; // Hourly data (correct source)
     schools: School[];
+    timezone?: string; // School's IANA timezone
 }
 
-export const GridAnalytics: React.FC<GridAnalyticsProps> = ({ currentData, historicalData, hourlyHistorical, schools }) => {
+export const GridAnalytics: React.FC<GridAnalyticsProps> = ({ currentData, historicalData, hourlyHistorical, schools, timezone = 'Asia/Jakarta' }) => {
     const { granularity, setGranularity, loading } = useDashboard();
 
     // Aggregated current snapshot from REAL telemetry
@@ -53,7 +55,7 @@ export const GridAnalytics: React.FC<GridAnalyticsProps> = ({ currentData, histo
         // Let's use the REAL load. 
 
         return {
-            time: new Date(h.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            time: formatTimeInSchoolTZ(h.hour, timezone),
             Solar: Number(solarVal.toFixed(1)),
             Load: Number(loadVal.toFixed(1)),
             Grid: Number(Math.abs(solarVal - loadVal).toFixed(1))

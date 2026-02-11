@@ -128,8 +128,9 @@ const startServer = async () => {
             }, '🚀 Server started (HTTP + WebSocket on same port)');
         });
 
-        // 🔥 ====== ADDED LINE #2 ======
+        // 🔥 ====== SIMULATOR STARTUP ======
         startSimulator().catch(err => logger.error({ err }, 'Simulator startup failed'));
+        logger.info('✅ Simulator starting with timezone-aware generation');
         // 🔥 ===========================
 
         // 🔥 Pre-warm critical caches on startup (eliminates first-request latency)

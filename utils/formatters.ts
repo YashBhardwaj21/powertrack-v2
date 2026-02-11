@@ -89,7 +89,7 @@ export const formatLastUpdated = (date: string | Date | undefined | null): strin
 // Format relative time with timezone support
 export const formatLastUpdatedTZ = (
     date: string | Date | undefined | null,
-    timezone: string = 'Asia/Jakarta'
+    timezone: string = 'UTC'
 ): string => {
     if (!date) return 'Never updated';
     const d = new Date(date);
@@ -117,7 +117,7 @@ export const formatLastUpdatedTZ = (
 // Format time in school timezone (always shows actual time, no relative format)
 export const formatTimestampInSchoolTZ = (
     date: string | Date | undefined | null,
-    timezone: string = 'Asia/Jakarta'
+    timezone: string = 'UTC'
 ): string => {
     if (!date) return '---';
     const d = new Date(date);

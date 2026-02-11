@@ -14,7 +14,7 @@ interface PowerFlowChartProps {
     timezone?: string; // School's IANA timezone
 }
 
-export const PowerFlowChart: React.FC<PowerFlowChartProps> = ({ data, timezone = 'Asia/Jakarta' }) => {
+export const PowerFlowChart: React.FC<PowerFlowChartProps> = ({ data, timezone = 'UTC' }) => {
     const chartOption = useMemo(() => {
         if (!data || data.length === 0) return null;
 

@@ -12,7 +12,7 @@ interface DailyHistoryChartProps {
     timezone?: string; // School's IANA timezone
 }
 
-export const DailyHistoryChart: React.FC<DailyHistoryChartProps> = ({ data, onDateClick, timezone = 'Asia/Jakarta' }) => {
+export const DailyHistoryChart: React.FC<DailyHistoryChartProps> = ({ data, onDateClick, timezone = 'UTC' }) => {
     if (!data || data.length === 0 || data.every(d => d.total_energy_kwh === 0)) {
         return (
             <div className="h-[320px] flex items-center justify-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50">

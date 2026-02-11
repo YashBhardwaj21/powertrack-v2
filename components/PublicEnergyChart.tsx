@@ -23,7 +23,7 @@ const COLORS = [
     '#d946ef', // Fuchsia 500
 ];
 
-export const PublicEnergyChart: React.FC<PublicEnergyChartProps> = ({ data, loading, timezone = 'Asia/Jakarta' }) => {
+export const PublicEnergyChart: React.FC<PublicEnergyChartProps> = ({ data, loading, timezone = 'UTC' }) => {
     // Extract school names from first data point keys, excluding 'timestamp'
     const schoolNames = data.length > 0
         ? Object.keys(data[0]).filter(key => key !== 'timestamp')

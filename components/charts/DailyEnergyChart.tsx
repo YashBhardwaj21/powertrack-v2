@@ -11,7 +11,7 @@ interface DailyEnergyChartProps {
     timezone?: string; // School's IANA timezone
 }
 
-export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data, timezone = 'Asia/Jakarta' }) => {
+export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data, timezone = 'UTC' }) => {
     // 1. Data Processing: Smart Date Selection
     const { chartCategories, chartValues, displayedDate } = useMemo(() => {
         // Initialize 24-hour buckets

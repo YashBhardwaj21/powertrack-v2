@@ -82,11 +82,10 @@ router.get('/summary', authenticateToken, validateUUID('school_id'), async (req:
         let model_metrics = defaultModelMetrics;
 
         try {
-            community_stats = dashboardService.calculateCommunityStats(current_data, TARIFF);
-            // Cast to any if partial match issues, but service returns full object.
-            // Cast to any if partial match issues, but service returns full object.
-            financial_stats = await dashboardService.getFinancialStats(schoolId, schools, current_data, TARIFF, EXPORT_TARIFF, CARBON_FACTOR, DEFAULT_IRR, 'Asia/Jakarta') as any; // Fallback, service uses DB timezone now
-            model_metrics = dashboardService.getModelMetrics(alerts.length);
+            financial_stats = await dashboardService.getFinancialStats(
+                schoolId, schools, current_data, TARIFF, EXPORT_TARIFF, CARBON_FACTOR, DEFAULT_IRR,
+                schools.find(s => s.id === schoolId)?.timezone || 'UTC'
+            ) as any;
         } catch (calcError) {
             console.error('Error calculating derived stats:', calcError);
             // Return empty/safe objects so dash loads partially
@@ -101,7 +100,7 @@ router.get('/summary', authenticateToken, validateUUID('school_id'), async (req:
             metadata: {
                 electricity_rate_idr: TARIFF,
                 carbon_intensity_kg_per_kwh: CARBON_FACTOR,
-                school_timezone: schools.find(s => s.id === schoolId)?.timezone || 'Asia/Jakarta',
+                school_timezone: schools.find(s => s.id === schoolId)?.timezone || 'UTC',
             },
             hourly_historical,
             historical_data: daily_historical, // Back-compat
@@ -133,8 +132,8 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
         res.json({
             leaderboard,
             metadata: {
-                carbon_intensity_kg_per_kwh: params?.carbon_intensity_kg_per_kwh || 0.85,
-                electricity_rate_idr: params?.electricity_rate_idr || 1500
+                carbon_intensity_kg_per_kwh: params?.carbon_intensity_kg_per_kwh || BUSINESS_LOGIC.DEFAULT_CARBON_INTENSITY_KG,
+                electricity_rate_idr: params?.electricity_rate_idr || BUSINESS_LOGIC.DEFAULT_ELECTRICITY_RATE_IDR
             }
         });
     } catch (error) {
@@ -243,10 +242,10 @@ router.get('/analytics', authenticateToken, async (req: Request, res: Response) 
         const historyResult = await query(
             `WITH days AS (SELECT generate_series($1::timestamp, $2::timestamp, '1 day'::interval) as date),
             per_school_daily AS (
-                SELECT DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')) as date_key, MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh) as daily_energy, MAX(t.ac_power_kw) as peak_power
+                SELECT DATE(t.timestamp AT TIME ZONE s.timezone) as date_key, MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh) as daily_energy, MAX(t.ac_power_kw) as peak_power
                 FROM public.telemetry t
                 JOIN public.schools s ON t.school_id = s.id
-                WHERE t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $3' : ''}
+                WHERE s.timezone IS NOT NULL AND t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $3' : ''}
                 GROUP BY date_key
             )
             SELECT d.date, COALESCE(p.daily_energy, 0) as total_energy_kwh, COALESCE(p.peak_power, 0) as peak_power_kw
@@ -256,10 +255,10 @@ router.get('/analytics', authenticateToken, async (req: Request, res: Response) 
 
         const statsResult = await query(
             `WITH daily_maxes AS (
-                SELECT DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')) as day, t.school_id, MAX(t.daily_energy_kwh) as day_energy 
+                SELECT DATE(t.timestamp AT TIME ZONE s.timezone) as day, t.school_id, MAX(t.daily_energy_kwh) as day_energy 
                 FROM public.telemetry t
                 JOIN public.schools s ON t.school_id = s.id
-                WHERE t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $3' : ''} 
+                WHERE s.timezone IS NOT NULL AND t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $3' : ''} 
                 GROUP BY day, t.school_id
              )
              SELECT COALESCE(SUM(day_energy), 0) as period_energy,

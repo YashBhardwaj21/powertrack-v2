@@ -145,7 +145,9 @@ export const PublicLobby: React.FC = () => {
         0
     );
 
-    const totalCO2 = Number((totalEnergy * (metadata?.carbon_intensity_kg_per_kwh || 0.85)).toFixed(2));
+    const totalCO2 = metadata?.carbon_intensity_kg_per_kwh
+        ? Number((totalEnergy * metadata.carbon_intensity_kg_per_kwh).toFixed(2))
+        : 0;
 
 
     return (
@@ -304,10 +306,13 @@ export const PublicLobby: React.FC = () => {
                                                                 </td>
                                                                 <td className="px-8 py-6 font-mono text-emerald-600 font-bold text-right text-lg">
                                                                     <span>
-                                                                        {(Number(item.total_energy_kwh || 0) * (metadata?.carbon_intensity_kg_per_kwh || 0.85)).toLocaleString(undefined, {
-                                                                            minimumFractionDigits: 2,
-                                                                            maximumFractionDigits: 2
-                                                                        })}
+                                                                        {metadata?.carbon_intensity_kg_per_kwh
+                                                                            ? (Number(item.total_energy_kwh || 0) * metadata.carbon_intensity_kg_per_kwh).toLocaleString(undefined, {
+                                                                                minimumFractionDigits: 2,
+                                                                                maximumFractionDigits: 2
+                                                                            })
+                                                                            : '0.00'
+                                                                        }
                                                                         <span className="text-emerald-400 ml-2 text-xs font-bold uppercase">kg</span>
                                                                     </span>
                                                                 </td>

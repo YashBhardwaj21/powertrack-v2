@@ -14,7 +14,7 @@ interface PerformanceChartsProps {
     timezone?: string; // School's IANA timezone
 }
 
-export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({ currentData, historicalData, hourlyHistorical, dailyHistorical, schools, timezone = 'Asia/Jakarta' }) => {
+export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({ currentData, historicalData, hourlyHistorical, dailyHistorical, schools, timezone = 'UTC' }) => {
     const [range, setRange] = React.useState('30D');
     const [statsData, setStatsData] = React.useState<any[] | null>(null);
     const [loading, setLoading] = React.useState(false);

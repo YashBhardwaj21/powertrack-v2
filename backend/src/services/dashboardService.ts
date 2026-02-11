@@ -1,11 +1,18 @@
 import { query } from '../db/index.js';
 import { transformSchoolRow } from '../utils/transformers.js';
 import { School } from '../types/index.js';
+import { ENVIRONMENTAL, STORAGE_METRICS, ML_METRICS } from '../config/constants.js';
 
 // ⚡ In-memory cache for system_parameters (reduces DB hits)
 let systemParamsCache: Record<string, number> | null = null;
 let systemParamsCacheExpiry = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Cache invalidation helper
+export function invalidateSystemParamsCache() {
+    systemParamsCache = null;
+    systemParamsCacheExpiry = 0;
+}
 
 export const dashboardService = {
     async getSystemParams(keys: string[]) {
@@ -102,8 +109,9 @@ export const dashboardService = {
 
         const result = await query(
             `WITH school_tz AS (
-                SELECT id, COALESCE(timezone, 'Asia/Jakarta') as tz FROM public.schools
+                SELECT id, timezone as tz FROM public.schools
                 WHERE ($2::uuid IS NULL OR id = $2::uuid)
+                AND timezone IS NOT NULL
             ),
             time_buckets AS (
                 SELECT s.id as school_id, generate_series(
@@ -161,8 +169,9 @@ export const dashboardService = {
         // NOTE: Dynamic timezone join
         const result = await query(
             `WITH school_tz AS (
-                SELECT id, COALESCE(timezone, 'Asia/Jakarta') as tz FROM public.schools
+                SELECT id, timezone as tz FROM public.schools
                 WHERE ($1::uuid IS NULL OR id = $1::uuid)
+                AND timezone IS NOT NULL
             ),
             days AS (
                 SELECT s.id as school_id, generate_series(
@@ -228,8 +237,9 @@ export const dashboardService = {
         // 3. Month Savings
         const monthStatsResult = await query(
             `WITH school_tz AS (
-                SELECT id, COALESCE(timezone, 'Asia/Jakarta') as tz FROM public.schools
+                SELECT id, timezone as tz FROM public.schools
                 WHERE ($1::uuid IS NULL OR id = $1::uuid)
+                AND timezone IS NOT NULL
              ),
              -- 1. Aggregated Past Days (Fast)
              agg_history AS (
@@ -283,9 +293,9 @@ export const dashboardService = {
         const avgDailyResult = await query(
             `SELECT COALESCE(AVG(daily_max), 0) as avg_gen, COALESCE(AVG(export_max), 0) as avg_exp, COUNT(*) as data_days
              FROM (
-                SELECT DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')) as day, MAX(t.daily_energy_kwh) as daily_max, MAX(t.daily_export_kwh) as export_max
+                SELECT DATE(t.timestamp AT TIME ZONE s.timezone) as day, MAX(t.daily_energy_kwh) as daily_max, MAX(t.daily_export_kwh) as export_max
                 FROM public.telemetry t JOIN public.schools s ON t.school_id = s.id
-                WHERE s.deleted_at IS NULL AND t.timestamp >= NOW() - INTERVAL '30 days'
+                WHERE s.deleted_at IS NULL AND s.timezone IS NOT NULL AND t.timestamp >= NOW() - INTERVAL '30 days'
                 AND ($1::uuid IS NULL OR t.school_id = $1::uuid)
                 GROUP BY day, t.school_id
              ) p`,
@@ -299,7 +309,7 @@ export const dashboardService = {
         // If insufficient data (< 3 days), use Nameplate Projection
         let isProjected = false;
         if (dataDays < 3 && totalCapacity > 0) {
-            avgDailyGen = totalCapacity * 3.5; // Conservative 3.5 kWh/kWp
+            avgDailyGen = totalCapacity * ENVIRONMENTAL.CONSERVATIVE_YIELD_KWH_PER_KWP;
             avgDailyExp = 0; // Assume 100% self-consumption for conservative payback
             isProjected = true;
         }
@@ -311,9 +321,8 @@ export const dashboardService = {
         // Payback: CAPEX / Annual Savings
         const paybackYears = (totalCapex > 0 && annualSavings > 0) ? totalCapex / annualSavings : 0;
 
-        // LCOE: CAPEX / (Annual Generation * 20 Years)
-        // Using 20 years as standard lifetime
-        const lifetimeProjectedEnergy = (avgDailyGen * 365 * 20);
+        // LCOE: CAPEX / (Annual Generation * System Lifetime)
+        const lifetimeProjectedEnergy = (avgDailyGen * 365 * ENVIRONMENTAL.SOLAR_SYSTEM_LIFETIME_YEARS);
         const lcoe = (totalCapex > 0 && lifetimeProjectedEnergy > 0)
             ? totalCapex / lifetimeProjectedEnergy
             : 0;
@@ -328,8 +337,8 @@ export const dashboardService = {
             today_savings_idr: todaySavings,
             month_savings_idr: monthSavings,
             co2_avoided_kg: totalLifetimeEnergy * carbonFactor,
-            trees_planted: (totalLifetimeEnergy * carbonFactor) / 20, // 20kg/year per tree
-            car_km_avoided: (totalLifetimeEnergy * carbonFactor) / 0.12, // 0.12kg/km
+            trees_planted: (totalLifetimeEnergy * carbonFactor) / ENVIRONMENTAL.CARBON_PER_TREE_KG_YEAR,
+            car_km_avoided: (totalLifetimeEnergy * carbonFactor) / ENVIRONMENTAL.CARBON_PER_CAR_KM,
             data_sufficiency: {
                 days_observed: dataDays,
                 is_projected: isProjected
@@ -341,27 +350,30 @@ export const dashboardService = {
         const storageResult = await query(`SELECT COUNT(*) AS total_points, pg_database_size(current_database()) AS db_size FROM public.telemetry`);
         const storageData = storageResult.rows[0] || { total_points: 0, db_size: 0 };
         return {
-            db_engine: 'PostgreSQL 14 (Partitioned)',
+            db_engine: STORAGE_METRICS.DB_ENGINE,
             storage_usage_mb: Math.round(parseInt(storageData.db_size) / (1024 * 1024)),
             total_points_stored: parseInt(storageData.total_points),
-            compression_ratio: 3.2,
-            ingestion_rate_mps: 0.5,
-            retention_policies: { raw: '90 days', aggregated: '2 years' },
+            compression_ratio: STORAGE_METRICS.COMPRESSION_RATIO, // TODO: Calculate actual
+            ingestion_rate_mps: STORAGE_METRICS.INGESTION_RATE_MPS, // TODO: Calculate actual
+            retention_policies: {
+                raw: `${STORAGE_METRICS.RETENTION_RAW_DAYS} days`,
+                aggregated: `${STORAGE_METRICS.RETENTION_AGGREGATED_DAYS} days`
+            },
             last_rollup_job: new Date().toISOString(),
         };
     },
 
     getModelMetrics(alertsCount: number) {
         return {
-            version: '1.0.0',
+            version: ML_METRICS.VERSION,
             last_trained: new Date().toISOString(),
-            rmse: 0.15,
-            mape: 5.2,
-            residuals_trend: [0.1, 0.05, -0.02, 0.03, -0.01],
+            rmse: ML_METRICS.RMSE,
+            mape: ML_METRICS.MAPE,
+            residuals_trend: ML_METRICS.RESIDUALS_TREND,
             anomaly_detection: {
-                precision: 0.92,
-                recall: 0.88,
-                f1_score: 0.90,
+                precision: ML_METRICS.ANOMALY_PRECISION,
+                recall: ML_METRICS.ANOMALY_RECALL,
+                f1_score: ML_METRICS.ANOMALY_F1,
                 total_anomalies_detected: alertsCount,
             },
         };
@@ -371,10 +383,11 @@ export const dashboardService = {
         const result = await query(
             `WITH daily_yields AS (
                 SELECT t.school_id, 
-                       DATE(t.timestamp AT TIME ZONE COALESCE(s.timezone, 'Asia/Jakarta')) as production_date, 
+                       DATE(t.timestamp AT TIME ZONE s.timezone) as production_date, 
                        MAX(t.daily_energy_kwh) as day_total
                 FROM public.telemetry t
                 JOIN public.schools s ON t.school_id = s.id
+                WHERE s.timezone IS NOT NULL
                 GROUP BY t.school_id, production_date
             ),
             school_aggregates AS (

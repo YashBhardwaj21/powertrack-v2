@@ -2,13 +2,7 @@ import { query } from './db/index.js';
 import { logger } from './utils/logger.js';
 import { broadcastTelemetryUpdate } from './websocket/index.js';
 import { DateTime } from 'luxon';
-import {
-    getLocalHour, getDayOfYear,
-    daylightFactor, calcIrradiance, calcTemperature,
-    getSunriseSunset,
-    getBaseLoad, loadFactor,
-    getRandomWeather, WEATHER_FACTOR
-} from './utils/solarModels.js';
+import { SIMULATION, WEATHER_FACTOR, ENVIRONMENTAL } from './config/constants.js';
 
 // ═══════════ TYPES ═══════════
 interface School {
@@ -24,344 +18,344 @@ interface School {
 let intervalId: NodeJS.Timeout | null = null;
 let schoolsCache: School[] = [];
 let lastFetch = 0;
-const CACHE_TTL = process.env.NODE_ENV === 'development' ? 60_000 : 120_000;
 
-// Internal State for Incremental Simulation
-interface SimState {
-    lastTick: number; // timestamp
+// Track daily energy per school (resets at midnight in school's timezone)
+interface SchoolState {
     dailyEnergy: number;
     totalEnergy: number;
-    dailyExport: number;
-    dailyImport: number;
-    dailySelfConsumed: number; // Track self-consumption too
-    currentLocalDay: number; // To detect midnight crossings
+    lastUpdateDate: string; // YYYY-MM-DD in school's timezone
+    currentWeather: string;
 }
 
-const simState: Record<string, SimState> = {};
-const schoolWeather: Record<string, string> = {};
+const schoolState: Map<string, SchoolState> = new Map();
 
-const PF = 0.95;
-const SYSTEM_EFFICIENCY = 0.85;
+// ═══════════ UTILITY FUNCTIONS ═══════════
+
+/**
+ * Calculate sunrise and sunset times for a given latitude and day of year
+ */
+function getSunriseSunset(latitude: number, dayOfYear: number): { sunrise: number; sunset: number } {
+    const latRad = (latitude * Math.PI) / 180;
+    const declination = 23.45 * Math.sin((2 * Math.PI / 365) * (dayOfYear - 81));
+    const decRad = (declination * Math.PI) / 180;
+    const cosHourAngle = -Math.tan(latRad) * Math.tan(decRad);
+
+    // Handle polar extremes
+    if (cosHourAngle < -1) return { sunrise: 0, sunset: 24 };
+    if (cosHourAngle > 1) return { sunrise: 12, sunset: 12 };
+
+    const hourAngle = Math.acos(cosHourAngle) * (180 / Math.PI) / 15;
+    const solarNoon = 12;
+
+    return {
+        sunrise: solarNoon - hourAngle,
+        sunset: solarNoon + hourAngle
+    };
+}
+
+/**
+ * Calculate solar power output based on time of day
+ * Returns power in kW
+ */
+function calculateSolarPower(
+    capacityKwp: number,
+    localHour: number,
+    latitude: number,
+    dayOfYear: number,
+    weatherCondition: string
+): { powerKw: number; irradiance: number; temperature: number } {
+    const { sunrise, sunset } = getSunriseSunset(latitude, dayOfYear);
+
+    // Night time - no power
+    if (localHour < sunrise || localHour > sunset) {
+        return { powerKw: 0, irradiance: 0, temperature: 20 };
+    }
+
+    // Calculate position in the day (0 at sunrise, 1 at solar noon, 0 at sunset)
+    const dayLength = sunset - sunrise;
+    const solarNoon = (sunrise + sunset) / 2;
+    const timeSinceNoon = localHour - solarNoon;
+
+    // Sinusoidal curve: peaks at noon, zero at sunrise/sunset
+    const daylightFactor = Math.cos((timeSinceNoon / (dayLength / 2)) * (Math.PI / 2));
+    const normalizedDaylight = Math.max(0, daylightFactor);
+
+    // Add heat effect - power increases with temperature during the day
+    // Peak heat is around 2-3 PM (1-2 hours after solar noon)
+    const hoursSinceSunrise = localHour - sunrise;
+    const peakHeatHour = dayLength * 0.65; // About 65% through the day
+    const heatFactor = 1 - Math.abs(hoursSinceSunrise - peakHeatHour) / (dayLength / 2);
+    const heatBoost = Math.max(0, heatFactor * 0.05); // Up to 5% boost from heat
+
+    // Calculate irradiance
+    const weatherMultiplier = WEATHER_FACTOR[weatherCondition] || 1.0;
+    const irradiance = SIMULATION.PEAK_IRRADIANCE * normalizedDaylight * weatherMultiplier;
+
+    // Only generate power if irradiance is above threshold
+    if (irradiance < SIMULATION.MIN_IRRADIANCE_THRESHOLD) {
+        return { powerKw: 0, irradiance: 0, temperature: 20 };
+    }
+
+    // Temperature calculation (panels heat up with sun exposure)
+    const temperature = SIMULATION.PANEL_AMBIENT_TEMP + (normalizedDaylight * SIMULATION.PANEL_TEMP_RISE);
+
+    // Power calculation with heat boost
+    const basePower = capacityKwp * normalizedDaylight * weatherMultiplier * SIMULATION.SYSTEM_EFFICIENCY;
+    const powerKw = basePower * (1 + heatBoost);
+
+    return {
+        powerKw: Number(powerKw.toFixed(3)),
+        irradiance: Number(irradiance.toFixed(1)),
+        temperature: Number(temperature.toFixed(1))
+    };
+}
+
+/**
+ * Get random weather condition based on probability distribution
+ */
+function getRandomWeather(): string {
+    const r = Math.random();
+    if (r < SIMULATION.WEATHER_SUNNY_PROB) return 'sunny';
+    if (r < SIMULATION.WEATHER_PARTLY_CLOUDY_PROB) return 'partly_cloudy';
+    if (r < SIMULATION.WEATHER_CLOUDY_PROB) return 'cloudy';
+    return 'rainy';
+}
+
+/**
+ * Calculate AC current from power
+ */
+function calculateCurrent(powerKw: number): number {
+    if (powerKw === 0) return 0;
+    return Number((powerKw * 1000 / (SIMULATION.AC_VOLTAGE * SIMULATION.POWER_FACTOR)).toFixed(2));
+}
 
 // ═══════════ SCHOOL CACHE ═══════════
 async function getSchools(): Promise<School[]> {
-    if (Date.now() - lastFetch > CACHE_TTL || !schoolsCache.length) {
+    const now = Date.now();
+    if (now - lastFetch > SIMULATION.CACHE_TTL_MS || schoolsCache.length === 0) {
         const res = await query(`
             SELECT id, name, timezone, latitude, longitude, total_capacity_kwp
-            FROM schools WHERE deleted_at IS NULL
+            FROM schools 
+            WHERE deleted_at IS NULL 
+            AND timezone IS NOT NULL
+            AND latitude IS NOT NULL 
+            AND longitude IS NOT NULL
+            AND total_capacity_kwp > 0
         `);
+
         schoolsCache = res.rows;
-        lastFetch = Date.now();
+        lastFetch = now;
         logger.info({ count: schoolsCache.length }, '📦 Schools cache refreshed');
+
+        // Validate school data
+        for (const school of schoolsCache) {
+            if (!school.timezone) {
+                logger.error({ schoolId: school.id, schoolName: school.name },
+                    '❌ School missing timezone - skipping from simulation');
+            }
+        }
     }
     return schoolsCache;
 }
 
-// Manual cache invalidation for immediate refresh
 export function invalidateSchoolCache() {
     lastFetch = 0;
     schoolsCache = [];
     logger.info('🔄 School cache invalidated');
 }
 
-// ═══════════ RETRY HELPER ═══════════
-async function retryQuery(sql: string, params: any[], maxRetries = 3): Promise<any> {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            return await query(sql, params);
-        } catch (err) {
-            if (attempt === maxRetries) throw err;
-            const delayMs = Math.min(1000 * Math.pow(2, attempt), 5000);
-            logger.warn({ attempt, delayMs, err }, '⚠️ Query failed, retrying...');
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
-    }
-}
-
-// ═══════════ STARTUP (Hydrate State) ═══════════
-async function seedFromDB() {
-    // Optional manual wipe via environment variable (for testing/dev only)
-    if (process.env.WIPE_ON_START === 'true') {
-        logger.warn('🔥 MANUAL WIPE: Deleting all telemetry data per WIPE_ON_START env var...');
-        await query('DELETE FROM telemetry');
-        await query('DELETE FROM telemetry_daily');
-        logger.info('✅ Telemetry wiped. Starting fresh.');
-    }
-
+// ═══════════ STATE INITIALIZATION ═══════════
+async function initializeState() {
     const schools = await getSchools();
-    logger.info('🌱 Hydrating Simulator State from DB...');
+    logger.info('🌱 Initializing simulation state...');
 
-    for (const s of schools) {
-        const id = s.id;
-        const tz = s.timezone || 'Asia/Jakarta';
+    for (const school of schools) {
+        if (!school.timezone) {
+            logger.warn({ schoolId: school.id }, '⚠️ Skipping school without timezone');
+            continue;
+        }
+
         try {
-            // Get the LAST known telemetry point to resume counting
+            // Get latest telemetry from database
             const res = await query(`
-                SELECT total_energy_kwh, daily_energy_kwh, 
-                       daily_export_kwh, daily_import_kwh, 
-                       daily_self_consumed_kwh, timestamp
+                SELECT total_energy_kwh, daily_energy_kwh, timestamp
                 FROM telemetry 
                 WHERE school_id = $1 
                 ORDER BY timestamp DESC 
                 LIMIT 1
-            `, [id]);
+            `, [school.id]);
 
             const row = res.rows[0];
-            const nowDt = DateTime.now().setZone(tz);
+            const nowInSchoolTz = DateTime.now().setZone(school.timezone);
+            const currentDate = nowInSchoolTz.toISODate();
 
-            simState[id] = {
-                lastTick: Date.now(), // fresh start clock
-                dailyEnergy: Number(row?.daily_energy_kwh) || 0,
-                totalEnergy: Number(row?.total_energy_kwh) || 0,
-                dailyExport: Number(row?.daily_export_kwh) || 0,
-                dailyImport: Number(row?.daily_import_kwh) || 0,
-                dailySelfConsumed: Number(row?.daily_self_consumed_kwh) || 0,
-                currentLocalDay: nowDt.ordinal
-            };
+            let dailyEnergy = 0;
+            let totalEnergy = 0;
 
-            // If we restarted on a new day compared to DB, reset daily counts immediately
-            if (row?.timestamp) {
-                const lastDbDate = DateTime.fromJSDate(new Date(row.timestamp)).setZone(tz);
-                if (lastDbDate.ordinal !== nowDt.ordinal || lastDbDate.year !== nowDt.year) {
-                    logger.info({ school: s.name }, '🔄 New day detected during hydration, resetting daily counters');
-                    simState[id].dailyEnergy = 0;
-                    simState[id].dailyExport = 0;
-                    simState[id].dailyImport = 0;
-                    simState[id].dailySelfConsumed = 0;
+            if (row) {
+                const lastUpdate = DateTime.fromJSDate(new Date(row.timestamp)).setZone(school.timezone);
+                const lastDate = lastUpdate.toISODate();
+
+                // If same day, resume counting; otherwise reset daily
+                if (lastDate === currentDate) {
+                    dailyEnergy = Number(row.daily_energy_kwh) || 0;
                 }
+                totalEnergy = Number(row.total_energy_kwh) || 0;
+
+                logger.info({
+                    school: school.name,
+                    lastDate,
+                    currentDate,
+                    resuming: lastDate === currentDate
+                }, '📊 Loaded state from database');
             }
 
-            // Initial weather
-            schoolWeather[id] = getRandomWeather();
+            schoolState.set(school.id, {
+                dailyEnergy,
+                totalEnergy,
+                lastUpdateDate: currentDate!,
+                currentWeather: getRandomWeather()
+            });
 
         } catch (err) {
-            logger.warn({ school: s.name, err }, '⚠️ Failed to hydrate state, starting from 0');
-            simState[id] = {
-                lastTick: Date.now(),
+            logger.error({ school: school.name, err }, '❌ Failed to initialize state');
+            // Initialize with zeros
+            const nowInSchoolTz = DateTime.now().setZone(school.timezone);
+            schoolState.set(school.id, {
                 dailyEnergy: 0,
                 totalEnergy: 0,
-                dailyExport: 0,
-                dailyImport: 0,
-                dailySelfConsumed: 0,
-                currentLocalDay: DateTime.now().setZone(tz).ordinal
-            };
+                lastUpdateDate: nowInSchoolTz.toISODate()!,
+                currentWeather: getRandomWeather()
+            });
         }
     }
-    logger.info('✅ State hydrated. Simulator is ready.');
+
+    logger.info({ schoolCount: schoolState.size }, '✅ State initialized');
 }
 
-// ═══════════ MAIN TICK ═══════════
+// ═══════════ MAIN SIMULATION TICK ═══════════
 async function simulateTick() {
     const schools = await getSchools();
-    const now = Date.now();
+    const tickTimestamp = new Date();
 
     for (const school of schools) {
+        if (!school.timezone) {
+            logger.warn({ schoolId: school.id }, '⚠️ Skipping school without timezone');
+            continue;
+        }
+
         try {
-            const id = school.id;
-            const tz = school.timezone || 'Asia/Jakarta';
-            const lat = Number(school.latitude) || -6.2;
-            const capacity = Number(school.total_capacity_kwp) || 5;
-
-            // Initialize state if missing (e.g. new school added mid-run)
-            if (!simState[id]) {
-                simState[id] = {
-                    lastTick: now,
-                    dailyEnergy: 0, totalEnergy: 0, dailyExport: 0, dailyImport: 0, dailySelfConsumed: 0,
-                    currentLocalDay: DateTime.now().setZone(tz).ordinal
-                };
+            const state = schoolState.get(school.id);
+            if (!state) {
+                logger.warn({ schoolId: school.id }, '⚠️ State not initialized, skipping');
+                continue;
             }
 
-            const state = simState[id];
+            // Get current time in school's timezone
+            const nowInSchoolTz = DateTime.fromJSDate(tickTimestamp).setZone(school.timezone);
+            const currentDate = nowInSchoolTz.toISODate()!;
+            const localHour = nowInSchoolTz.hour + nowInSchoolTz.minute / 60 + nowInSchoolTz.second / 3600;
+            const dayOfYear = nowInSchoolTz.ordinal;
 
-            // 1. Single Timestamp Source (Critical Fix)
-            const tickTimestamp = new Date();
-            const localTime = DateTime.fromJSDate(tickTimestamp).setZone(tz);
-
-            // 2. Time & Weather
-            if (!schoolWeather[id] || Math.random() < 0.01) {
-                schoolWeather[id] = getRandomWeather();
-            }
-            const weather = schoolWeather[id];
-            const weatherMult = WEATHER_FACTOR[weather];
-
-            const localHour = localTime.hour + localTime.minute / 60;
-            const dayOfYear = localTime.ordinal;
-
-            // 2. Strict Nighttime Zero Check
-            const { sunrise, sunset } = getSunriseSunset(lat, dayOfYear);
-            let solar_kw = 0;
-            let daylight = 0;
-            let irradiance = 0;
-            let temp = 25;
-
-            // Only generate power if sun is UP
-            if (localHour >= sunrise && localHour <= sunset) {
-                daylight = daylightFactor(localHour, lat, dayOfYear);
-                irradiance = calcIrradiance(daylight, weatherMult);
-                temp = calcTemperature(daylight);
-
-                if (irradiance >= 10) { // Minimal threshold
-                    const performance = 0.9 + Math.random() * 0.1;
-                    solar_kw = +(capacity * daylight * weatherMult * performance * SYSTEM_EFFICIENCY).toFixed(3);
-                }
-            } else {
-                // Night time: 0 solar, strictly.
-                solar_kw = 0;
-                irradiance = 0;
-                temp = 20; // cooler at night
-            }
-
-            // 3. Load Model
-            const baseLoad = getBaseLoad(capacity);
-            const load_kw = +(Math.max(baseLoad * 0.35, baseLoad * loadFactor(localHour)) * (0.95 + Math.random() * 0.1)).toFixed(3);
-
-            // 4. Instantaneous Flow
-            const exportKw = +Math.max(0, solar_kw - load_kw).toFixed(3);
-            const importKw = +Math.max(0, load_kw - solar_kw).toFixed(3);
-
-            // Self-consumed is strictly what's generated MINUS what's exported
-            // OR simply min(generated, load)
-            const selfConsumedKw = Math.min(solar_kw, load_kw);
-
-            const current = solar_kw > 0 ? (solar_kw * 1000 / (230 * PF)).toFixed(2) : '0.00';
-
-            // 5. Incremental Accumulation (The Core Logic)
-            // Clamp delta to max 30 seconds to prevent massive spikes if server sleeps
-            const rawDeltaHours = (tickTimestamp.getTime() - state.lastTick) / 3600000;
-            let deltaHours = Math.min(rawDeltaHours, 30 / 3600);
-
-            // 6. Corrected Midnight Crossing Logic
-            const currentDay = localTime.ordinal;
-
-            if (currentDay !== state.currentLocalDay) {
-                // Calculate the ACTUAL midnight boundary we crossed
-                const midnightMs = DateTime
-                    .fromJSDate(new Date(state.lastTick))
-                    .setZone(tz)
-                    .plus({ days: 1 })
-                    .startOf('day')
-                    .toMillis();
-
-                const nowMs = tickTimestamp.getTime();
-                const lastTickMs = state.lastTick;
-
-                // Split: old day portion vs new day portion
-                const oldDayMs = midnightMs - lastTickMs;
-                const newDayMs = nowMs - midnightMs;
-
-                const oldDayHours = oldDayMs / 3600000;
-                const newDayHours = newDayMs / 3600000;
-
-                // Apply old day energy to totals BEFORE reset
-                const oldDayEnergy = solar_kw * oldDayHours;
-                state.totalEnergy += oldDayEnergy;
-                state.dailyEnergy += oldDayEnergy;
-
+            // Check for day rollover (midnight crossing)
+            if (currentDate !== state.lastUpdateDate) {
                 logger.info({
                     school: school.name,
-                    oldDayHours: oldDayHours.toFixed(4),
-                    newDayHours: newDayHours.toFixed(4),
-                    oldDayEnergy: oldDayEnergy.toFixed(4)
-                }, '🌙 Midnight split');
+                    oldDate: state.lastUpdateDate,
+                    newDate: currentDate,
+                    dailyEnergy: state.dailyEnergy.toFixed(3)
+                }, '🌙 Midnight detected - resetting daily counters');
 
-                // NOW reset for new day
                 state.dailyEnergy = 0;
-                state.dailyExport = 0;
-                state.dailyImport = 0;
-                state.dailySelfConsumed = 0;
-                state.currentLocalDay = currentDay;
-
-                // Recalculate delta for NEW day portion only
-                deltaHours = newDayHours;
+                state.lastUpdateDate = currentDate;
             }
 
-            // 7. TWO-PHASE COMMIT PATTERN
-            // Phase 1: Calculate increments (don't mutate state yet)
-            const genKwh = solar_kw * deltaHours;
-            const exportKwh = exportKw * deltaHours;
-            const importKwh = importKw * deltaHours;
-            const selfKwh = selfConsumedKw * deltaHours;
+            // Weather changes occasionally
+            if (Math.random() < SIMULATION.WEATHER_CHANGE_PROBABILITY) {
+                state.currentWeather = getRandomWeather();
+                logger.debug({ school: school.name, weather: state.currentWeather }, '☁️ Weather changed');
+            }
 
-            // Phase 2: Persist to DB with FUTURE state
-            let inserted = false;
+            // Calculate solar power output
+            const { powerKw, irradiance, temperature } = calculateSolarPower(
+                school.total_capacity_kwp,
+                localHour,
+                school.latitude,
+                dayOfYear,
+                state.currentWeather
+            );
+
+            // Calculate energy increment (power * time)
+            // Time delta is the tick interval in hours
+            const deltaHours = SIMULATION.TICK_INTERVAL_MS / 3600000;
+            const energyKwh = powerKw * deltaHours;
+
+            // Update state (in-memory)
+            const newDailyEnergy = state.dailyEnergy + energyKwh;
+            const newTotalEnergy = state.totalEnergy + energyKwh;
+
+            // Calculate AC current
+            const current = calculateCurrent(powerKw);
+
+            // Persist to database
             try {
-                await retryQuery(`
+                await query(`
                     INSERT INTO telemetry (
-                        school_id, timestamp, ac_power_kw, ac_voltage, ac_current,
+                        school_id, timestamp, 
+                        ac_power_kw, ac_voltage, ac_current,
                         daily_energy_kwh, total_energy_kwh,
-                        daily_export_kwh, daily_import_kwh, daily_self_consumed_kwh,
-                        load_kw, grid_export_kw, grid_import_kw,
                         irradiance_wm2, panel_temp_c, weather_condition
-                    ) VALUES ($1,$2,$3,230,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 `, [
-                    id,
+                    school.id,
                     tickTimestamp,
-                    solar_kw,
+                    powerKw,
+                    SIMULATION.AC_VOLTAGE,
                     current,
-                    (state.dailyEnergy + genKwh).toFixed(4),
-                    (state.totalEnergy + genKwh).toFixed(4),
-                    (state.dailyExport + exportKwh).toFixed(4),
-                    (state.dailyImport + importKwh).toFixed(4),
-                    (state.dailySelfConsumed + selfKwh).toFixed(4),
-                    load_kw,
-                    exportKw,
-                    importKw,
-                    irradiance.toFixed(1),
-                    temp.toFixed(1),
-                    weather
+                    newDailyEnergy.toFixed(4),
+                    newTotalEnergy.toFixed(4),
+                    irradiance,
+                    temperature,
+                    state.currentWeather
                 ]);
-                inserted = true;
-            } catch (err) {
-                logger.error({ school: school.name, err }, '❌ Persist failed after retries');
-            }
 
-            // Phase 3: Commit state ONLY if DB write succeeded
-            if (inserted) {
-                state.dailyEnergy += genKwh;
-                state.totalEnergy += genKwh;
-                state.dailyExport += exportKwh;
-                state.dailyImport += importKwh;
-                state.dailySelfConsumed += selfKwh;
-                state.lastTick = tickTimestamp.getTime();
+                // Only update state after successful DB write
+                state.dailyEnergy = newDailyEnergy;
+                state.totalEnergy = newTotalEnergy;
 
                 logger.info({
                     school: school.name,
-                    time: localHour.toFixed(2),
-                    solar: solar_kw,
-                    daily: state.dailyEnergy.toFixed(3),
-                    total: state.totalEnergy.toFixed(3),
-                    tickTimestamp: tickTimestamp.toISOString()
+                    localTime: localHour.toFixed(2),
+                    power: powerKw,
+                    daily: newDailyEnergy.toFixed(3),
+                    total: newTotalEnergy.toFixed(2),
+                    weather: state.currentWeather
                 }, '☀️ Tick');
 
+                // Broadcast to WebSocket clients
                 broadcastTelemetryUpdate({
-                    school_id: id,
+                    school_id: school.id,
                     timestamp: tickTimestamp,
-                    ac_power_kw: solar_kw,
-                    ac_voltage: 230,
-                    ac_current: Number(current),
-                    total_energy_kwh: state.totalEnergy,
-                    daily_energy_kwh: state.dailyEnergy,
-                    daily_export_kwh: state.dailyExport,
-                    daily_import_kwh: state.dailyImport,
-                    load_kw: load_kw,
-                    grid_export_kw: exportKw,
-                    grid_import_kw: importKw,
+                    ac_power_kw: powerKw,
+                    ac_voltage: SIMULATION.AC_VOLTAGE,
+                    ac_current: current,
+                    total_energy_kwh: newTotalEnergy,
+                    daily_energy_kwh: newDailyEnergy,
                     irradiance_wm2: irradiance,
-                    panel_temp_c: temp,
-                    weather_condition: weather,
+                    panel_temp_c: temperature,
+                    weather_condition: state.currentWeather,
                     performance_ratio: 0.9,
                     efficiency_percent: 19.5,
                     fault: 'none',
                     quality_score: 100
                 });
-            } else {
-                // Don't update state - will retry on next tick with same baseline
-                logger.warn({ school: school.name }, '⚠️ Skipping state update due to DB failure');
-                continue;
+
+            } catch (dbError) {
+                logger.error({ school: school.name, dbError }, '❌ Database write failed - state not updated');
             }
 
         } catch (err) {
-            logger.error({ err, school: school.name }, '❌ Tick failed');
+            logger.error({ school: school.name, err }, '❌ Simulation tick failed');
         }
     }
 }
@@ -370,16 +364,20 @@ async function simulateTick() {
 let advisoryLockHeld = false;
 
 export async function startSimulator() {
-    if (intervalId) return;
+    if (intervalId) {
+        logger.warn('⚠️ Simulator already running');
+        return;
+    }
 
     // Acquire advisory lock to prevent duplicate instances
     try {
-        const lockResult = await query('SELECT pg_try_advisory_lock(987654321)');
+        const lockResult = await query(`SELECT pg_try_advisory_lock($1)`, [SIMULATION.ADVISORY_LOCK_ID]);
         advisoryLockHeld = lockResult.rows[0].pg_try_advisory_lock;
 
         if (!advisoryLockHeld) {
-            logger.error('❌ Another simulator instance is already running. Aborting.');
-            throw new Error('Simulator lock conflict - another instance running');
+            const errorMsg = 'Another simulator instance is already running';
+            logger.error(errorMsg);
+            throw new Error(errorMsg);
         }
 
         logger.info('🔒 Acquired simulator advisory lock');
@@ -388,10 +386,18 @@ export async function startSimulator() {
         throw err;
     }
 
-    logger.info('🚀 Starting INCREMENTAL Simulator...');
-    await seedFromDB();
+    logger.info({
+        interval: SIMULATION.TICK_INTERVAL_MS,
+        cacheTtl: SIMULATION.CACHE_TTL_MS
+    }, '🚀 Starting simplified simulator...');
+
+    await initializeState();
+
+    // Run first tick immediately
     simulateTick();
-    intervalId = setInterval(simulateTick, 10_000);
+
+    // Then continue on intervals
+    intervalId = setInterval(simulateTick, SIMULATION.TICK_INTERVAL_MS);
 }
 
 export function stopSimulator() {
@@ -401,9 +407,9 @@ export function stopSimulator() {
 
         // Release advisory lock
         if (advisoryLockHeld) {
-            query('SELECT pg_advisory_unlock(987654321)')
+            query(`SELECT pg_advisory_unlock($1)`, [SIMULATION.ADVISORY_LOCK_ID])
                 .then(() => logger.info('🔓 Released simulator advisory lock'))
-                .catch(err => logger.error({ err }, 'Failed to release lock'));
+                .catch(err => logger.error({ err }, '❌ Failed to release lock'));
             advisoryLockHeld = false;
         }
 

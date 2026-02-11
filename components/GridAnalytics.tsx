@@ -14,7 +14,7 @@ interface GridAnalyticsProps {
     timezone?: string; // School's IANA timezone
 }
 
-export const GridAnalytics: React.FC<GridAnalyticsProps> = ({ currentData, historicalData, hourlyHistorical, schools, timezone = 'Asia/Jakarta' }) => {
+export const GridAnalytics: React.FC<GridAnalyticsProps> = ({ currentData, historicalData, hourlyHistorical, schools, timezone = 'UTC' }) => {
     const { granularity, setGranularity, loading } = useDashboard();
 
     // Aggregated current snapshot from REAL telemetry

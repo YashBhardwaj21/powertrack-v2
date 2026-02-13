@@ -1,6 +1,6 @@
-# PowerTrack v2 - Enterprise Solar Monitoring
+# PowerTrack - Solar Energy Monitoring System
 
-> A comprehensive, enterprise-grade solar energy monitoring platform designed for educational and government institutions in West Java.
+> A comprehensive solar energy monitoring platform designed for educational and government institutions in Indonesia.
 
 ## Table of Contents
 

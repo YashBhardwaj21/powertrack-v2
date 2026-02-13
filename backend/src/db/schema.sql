@@ -48,6 +48,7 @@ ON CONFLICT DO NOTHING;
 -- =========================================================
 -- SCHOOLS
 -- =========================================================
+
 CREATE TABLE IF NOT EXISTS public.schools (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
@@ -62,20 +63,8 @@ CREATE TABLE IF NOT EXISTS public.schools (
     deleted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    timezone VARCHAR(50) DEFAULT 'Asia/Jakarta'
+    timezone VARCHAR(50) DEFAULT 'Asia/Jakarta' NOT NULL -- Enforced: Asia/Jakarta
 );
-
--- Idempotent Migration for Timezone
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='schools' AND column_name='timezone') THEN
-        ALTER TABLE public.schools ADD COLUMN timezone VARCHAR(50) DEFAULT 'Asia/Jakarta';
-    END IF;
-END $$;
-
--- View for active schools (simple filtering)
-CREATE OR REPLACE VIEW public.active_schools AS
-SELECT * FROM public.schools WHERE deleted_at IS NULL;
 
 -- =========================================================
 -- USERS
@@ -83,21 +72,20 @@ SELECT * FROM public.schools WHERE deleted_at IS NULL;
 CREATE TABLE IF NOT EXISTS public.users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(255),
-    role VARCHAR(50) NOT NULL DEFAULT 'viewer'
-        CHECK (role IN ('admin', 'school_admin', 'viewer')),
+    role VARCHAR(50) DEFAULT 'viewer', -- 'admin', 'editor', 'viewer', 'school_admin'
     school_id UUID REFERENCES public.schools(id) ON DELETE SET NULL,
+    last_login TIMESTAMPTZ,
+    reset_token VARCHAR(255),
+    reset_expires TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    last_login TIMESTAMPTZ
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- =========================================================
 -- TELEMETRY (PARTITIONED)
 -- =========================================================
--- REMOVED DESTRUCTIVE DROP: DROP TABLE IF EXISTS public.telemetry CASCADE;
-
 CREATE TABLE IF NOT EXISTS public.telemetry (
     school_id UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -105,10 +93,11 @@ CREATE TABLE IF NOT EXISTS public.telemetry (
     ac_power_kw DECIMAL(10, 3),
     ac_voltage DECIMAL(6, 2),
     ac_current DECIMAL(6, 2),
-    total_energy_kwh DECIMAL(12, 2),
-    daily_energy_kwh DECIMAL(10, 2),
-    daily_export_kwh DECIMAL(10, 2), -- Added for Net Metering
-    daily_import_kwh DECIMAL(10, 2), -- Added for Net Metering
+    total_energy_kwh DECIMAL(14, 4) CHECK (total_energy_kwh >= 0), -- Hardened: Precision & Check
+    daily_energy_kwh DECIMAL(14, 4) CHECK (daily_energy_kwh >= 0), -- Hardened: Precision & Check
+    daily_load_kwh DECIMAL(14, 4),   -- Added: Missing column
+    daily_export_kwh DECIMAL(14, 4), -- Hardened: Precision
+    daily_import_kwh DECIMAL(14, 4), -- Hardened: Precision
     irradiance_wm2 DECIMAL(6, 2),
     panel_temp_c DECIMAL(5, 2),
     performance_ratio DECIMAL(5, 4),
@@ -120,62 +109,92 @@ CREATE TABLE IF NOT EXISTS public.telemetry (
     fault VARCHAR(50) DEFAULT 'none',
     quality_score DECIMAL(3, 2) DEFAULT 1.0,
     is_backfill BOOLEAN DEFAULT FALSE,
-    is_suspect_time BOOLEAN DEFAULT FALSE
+    is_suspect_time BOOLEAN DEFAULT FALSE,
+    local_date DATE -- Optimized: Pre-computed local date
 ) PARTITION BY RANGE (timestamp);
 
 -- 1. Default Partition (Safety Net)
--- Ensures no data is ever lost even if auto-creation fails
 CREATE TABLE IF NOT EXISTS public.telemetry_default PARTITION OF public.telemetry DEFAULT;
 
--- 2. Pre-seed 2026 Partitions (Optional but good for performance)
+-- 2. Pre-seed Partitions (Example)
 CREATE TABLE IF NOT EXISTS public.telemetry_2026_01 PARTITION OF public.telemetry
     FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
-CREATE TABLE IF NOT EXISTS public.telemetry_2026_02 PARTITION OF public.telemetry
-    FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');
-CREATE TABLE IF NOT EXISTS public.telemetry_2026_03 PARTITION OF public.telemetry
-    FOR VALUES FROM ('2026-03-01') TO ('2026-04-01');
+-- ... (other partitions managed by scripts/ensure_partitions) ...
 
--- 3. Auto-Partitioning Trigger Function
-CREATE OR REPLACE FUNCTION public.create_partition_and_insert() RETURNS TRIGGER AS $$
+-- 3. Partition Management Helper (Manual Call, no longer Trigger)
+CREATE OR REPLACE FUNCTION public.ensure_partitions_for_year(target_year INT)
+RETURNS VOID AS $$
 DECLARE
-    partition_date TEXT;
+    start_date DATE;
+    end_date DATE;
     partition_name TEXT;
-    start_of_month TIMESTAMP;
-    end_of_month TIMESTAMP;
+    i INT;
 BEGIN
-    -- Calculate partition name based on the timestamp of the new row
-    partition_date := to_char(NEW.timestamp, 'YYYY_MM');
-    partition_name := 'telemetry_' || partition_date;
-    start_of_month := date_trunc('month', NEW.timestamp);
-    end_of_month := start_of_month + interval '1 month';
-
-    -- Check if partition exists
-    IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = partition_name) THEN
-        BEGIN
-            -- Try to create it
+    FOR i IN 1..12 LOOP
+        start_date := make_date(target_year, i, 1);
+        end_date := start_date + interval '1 month';
+        partition_name := format('telemetry_%s_%s', target_year, to_char(start_date, 'MM'));
+        
+        IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = partition_name) THEN
             EXECUTE format(
                 'CREATE TABLE IF NOT EXISTS public.%I PARTITION OF public.telemetry FOR VALUES FROM (%L) TO (%L)',
-                partition_name, start_of_month, end_of_month
+                partition_name, start_date, end_date
             );
-            -- Add indexes to the new partition specifically if needed, 
-            -- though PG11+ attaches parent indexes automatically.
-        EXCEPTION WHEN duplicate_table THEN
-            -- Ignore race condition if it was just created
-            NULL;
-        END;
-    END IF;
-
-    RETURN NEW;
+            RAISE NOTICE 'Created partition %', partition_name;
+        END IF;
+    END LOOP;
 END;
 $$ LANGUAGE plpgsql;
 
--- 4. Correct Trigger Attachment
--- Note: 'BEFORE INSERT' on a partitioned table is supported in PG13+.
--- If running older PG, this might need to be an app-level logic or a BEFORE trigger on the DEFAULT partition.
--- Assuming PG14+ as per 'Storage Stats'.
-CREATE TRIGGER ensure_partition_exists_trigger
-    BEFORE INSERT ON public.telemetry
-    FOR EACH ROW EXECUTE FUNCTION public.create_partition_and_insert();
+-- =========================================================
+-- TELEMETRY DAILY (Aggregated)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.telemetry_daily (
+    school_id UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+    day DATE NOT NULL,
+    daily_energy_kwh DECIMAL(14, 4),
+    daily_export_kwh DECIMAL(14, 4),
+    daily_import_kwh DECIMAL(14, 4),
+    peak_power_kw DECIMAL(10, 3),
+    avg_temp_c DECIMAL(5, 2),
+    avg_irradiance_wm2 DECIMAL(6, 2),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (school_id, day)
+);
+
+CREATE INDEX IF NOT EXISTS idx_telemetry_daily_school_day ON public.telemetry_daily(school_id, day DESC);
+CREATE INDEX IF NOT EXISTS idx_telemetry_local_date ON public.telemetry(school_id, local_date);
+
+-- Function to Aggregate Daily Stats (Updated for local_date)
+CREATE OR REPLACE PROCEDURE public.aggregate_daily_stats(target_school_id UUID, target_day DATE)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO public.telemetry_daily (
+        school_id, day, 
+        daily_energy_kwh, daily_export_kwh, daily_import_kwh,
+        peak_power_kw, avg_temp_c, avg_irradiance_wm2
+    )
+    SELECT 
+        school_id,
+        local_date, -- Use pre-computed local_date
+        MAX(total_energy_kwh) - MIN(total_energy_kwh), -- Robust: Max - Min
+        MAX(daily_export_kwh),
+        MAX(daily_import_kwh),
+        MAX(ac_power_kw),
+        AVG(panel_temp_c),
+        AVG(irradiance_wm2)
+    FROM public.telemetry
+    WHERE school_id = target_school_id 
+    AND local_date = target_day
+    GROUP BY school_id, local_date
+    ON CONFLICT (school_id, day) DO UPDATE SET
+        daily_energy_kwh = EXCLUDED.daily_energy_kwh,
+        daily_export_kwh = EXCLUDED.daily_export_kwh,
+        daily_import_kwh = EXCLUDED.daily_import_kwh,
+        updated_at = NOW();
+END;
+$$;
 
 -- =========================================================
 -- ALERTS

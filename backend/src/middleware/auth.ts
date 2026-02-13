@@ -40,7 +40,7 @@ class UserCache {
         // Prevent memory leak: clear old keys if too big
         if (this.cache.size > 1000) {
             const firstKey = this.cache.keys().next().value;
-            this.cache.delete(firstKey);
+            if (firstKey) this.cache.delete(firstKey);
         }
     }
 
@@ -106,6 +106,12 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
         console.error('Auth Middleware Error:', error);
         return res.status(403).json({ error: 'Invalid or expired token' });
     }
+};
+
+// 🧹 Export cache invalidation helper
+export const invalidateUserCache = (userId: string) => {
+    userSessionCache.clear(userId);
+    console.log(`[Auth] Invalidated cache for user ${userId}`);
 };
 
 import { query } from '../db/index.js';

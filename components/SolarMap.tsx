@@ -30,13 +30,21 @@ export const SolarMap: React.FC<SolarMapProps> = ({ schools = [], currentData = 
     useEffect(() => {
         if (!containerRef.current || mapRef.current) return;
 
-        // Initialize map
-        mapRef.current = L.map(containerRef.current).setView([20, 0], 2);
+        // Initialize map centered on Indonesia (Java focus)
+        // Center: -7.0, 110.0 (Java) or -2.5, 118 (Whole Indonesia)
+        mapRef.current = L.map(containerRef.current, {
+            minZoom: 5,
+            maxBounds: [
+                [6.0, 95.0],  // North West
+                [-11.0, 141.0] // South East
+            ],
+            maxBoundsViscosity: 1.0 // Sticky bounds
+        }).setView([-2.5489, 118.0149], 5);
 
         L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
             subdomains: 'abcd',
-            maxZoom: 20
+            maxZoom: 18
         }).addTo(mapRef.current);
 
         return () => {
@@ -173,7 +181,7 @@ export const SolarMap: React.FC<SolarMapProps> = ({ schools = [], currentData = 
         // Auto-center map if there are markers
         if (markersRef.current.length > 0) {
             const group = L.featureGroup(markersRef.current);
-            mapRef.current.fitBounds(group.getBounds().pad(0.1));
+            mapRef.current.fitBounds(group.getBounds().pad(0.5));
         }
     }, [schools, currentData, geocodedLocations]);
 

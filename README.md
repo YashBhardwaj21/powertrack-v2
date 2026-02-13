@@ -120,8 +120,7 @@ Key financial and energy metrics are calculated standard formulas:
 Impact is quantified using calibrated conversion factors:
 
 *   **CO₂ Avoided (kg)** = `Total Energy (kWh)` × `Carbon Factor (0.85)`
-*   **Trees Planted Eq.** = `CO₂ Avoided` / `21` (Approx. absorption of mature tree/year)
-*   **Car Km Avoided** = Derived from average combustion engine emissions.
+
 
 ## 9. Rate Limits & Scaling
 

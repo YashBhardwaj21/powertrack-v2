@@ -2,16 +2,17 @@ import express from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
-import pinoHttp from 'pino-http'; // Industry standard request logging
+import pinoHttp from 'pino-http';
 import { config } from './config/index.js';
 import { pool } from './db/index.js';
 import { initWebSocketServer } from './websocket/index.js';
 import { apiLimiter } from './middleware/rateLimit.js';
-import { logger } from './utils/logger.js'; // Structured logging
+import { logger } from './utils/logger.js';
 
-// 🔥 ====== ADDED LINE #1 ======
+// ====== ADDED LINE #1 ======
 import { startSimulator, stopSimulator } from './simulator.js';
-// 🔥 ===========================
+import { startScheduler, stopScheduler } from './jobs/scheduler.js';
+// ===========================
 
 // Import routes
 import authRoutes from './routes/auth.js';
@@ -30,7 +31,7 @@ app.use(cors({
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
 
-        // 🔥 Allow all in development (Fixes LAN/IP access issues)
+        // Allow all in development (Fixes LAN/IP access issues)
         if (config.nodeEnv === 'development') {
             return callback(null, true);
         }
@@ -111,7 +112,7 @@ const startServer = async () => {
     try {
         // Test database connection
         await pool.query('SELECT NOW()');
-        logger.info('✅ Database connection successful');
+        logger.info(' Database connection successful');
 
         // Create HTTP server wrapping Express (required for WebSocket on same port)
         const server = createServer(app);
@@ -125,15 +126,17 @@ const startServer = async () => {
                 port: config.port,
                 env: config.nodeEnv,
                 url: `http://localhost:${config.port}/api/v1`
-            }, '🚀 Server started (HTTP + WebSocket on same port)');
+            }, ' Server started (HTTP + WebSocket on same port)');
         });
 
-        // 🔥 ====== SIMULATOR STARTUP ======
+        // ====== SIMULATOR STARTUP ======
         startSimulator().catch(err => logger.error({ err }, 'Simulator startup failed'));
-        logger.info('✅ Simulator starting with timezone-aware generation');
-        // 🔥 ===========================
+        logger.info(' Simulator starting with timezone-aware generation');
 
-        // 🔥 Pre-warm critical caches on startup (eliminates first-request latency)
+        startScheduler();
+        // ===========================
+
+        // Pre-warm critical caches on startup (eliminates first-request latency)
         try {
             const { dashboardService } = await import('./services/dashboardService.js');
             await dashboardService.getSystemParams(['electricity_tariff_idr', 'carbon_factor_kg_kwh']);
@@ -153,7 +156,7 @@ const startServer = async () => {
         }, 180000); // 3 minutes
 
     } catch (error) {
-        logger.fatal({ err: error }, '❌ Failed to start server');
+        logger.fatal({ err: error }, ' Failed to start server');
         process.exit(1);
     }
 };
@@ -162,9 +165,10 @@ const startServer = async () => {
 process.on('SIGTERM', async () => {
     logger.info('SIGTERM received, shutting down gracefully...');
 
-    // 🔥 ====== ADDED LINE #3 ======
+    // ====== ADDED LINE #3 ======
     stopSimulator();
-    // 🔥 ===========================
+    stopScheduler();
+    // ===========================
 
     await pool.end();
     process.exit(0);
@@ -173,9 +177,10 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
     logger.info('SIGINT received, shutting down gracefully...');
 
-    // 🔥 ====== ADDED LINE #4 ======
+    // ====== ADDED LINE #4 ======
     stopSimulator();
-    // 🔥 ===========================
+    stopScheduler();
+    // ===========================
 
     await pool.end();
     process.exit(0);

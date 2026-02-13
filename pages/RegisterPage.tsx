@@ -10,7 +10,7 @@ export const RegisterPage: React.FC = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [fullName, setFullName] = useState('');
-    const [role, setRole] = useState('admin'); // Default to admin for new organizations
+    const [role, setRole] = useState('school_admin');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -99,11 +99,10 @@ export const RegisterPage: React.FC = () => {
                             onChange={e => setRole(e.target.value)}
                             className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white transition-all"
                         >
-                            <option value="admin">System Administrator</option>
                             <option value="school_admin">School Administrator</option>
                         </select>
                         <p className="text-[10px] text-slate-400 mt-1 italic">
-                            *System Admins can add multiple schools. School Admins are assigned to one.
+                              *School Admins are assigned to one school.
                         </p>
                     </div>
 

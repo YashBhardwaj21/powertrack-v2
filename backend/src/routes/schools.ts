@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import crypto from 'crypto';
 import { query, getClient } from '../db/index.js';
-import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { authenticateToken, requireRole, invalidateUserCache } from '../middleware/auth.js';
 import { errorResponse } from '../utils/errorResponse.js';
 import { broadcastSchoolCreated } from '../websocket/index.js';
 
@@ -80,6 +80,7 @@ router.post(
                 total_capacity_kwp,
                 total_cost_idr,
                 device_profile_id,
+                connection_protocol, // New field, default 'http'
                 api_key // Accept from frontend if provided
             } = req.body;
 
@@ -94,7 +95,7 @@ router.post(
                     `SELECT value FROM public.system_parameters WHERE key = 'default_device_profile_id'`
                 );
                 if (defaultProfile.rows.length > 0) {
-                    // ... (logic from before, truncated for brevity of replace call, keeping null logic)
+                    // Start of logic
                     finalProfileId = null;
                 }
             }
@@ -110,6 +111,8 @@ router.post(
             const finalLatitude = districtInfo.latitude;
             const finalLongitude = districtInfo.longitude;
 
+            const finalProtocol = connection_protocol || 'http';
+
             const result = await query(
                 `INSERT INTO public.schools (
                     name,
@@ -121,9 +124,10 @@ router.post(
                     total_cost_idr,
                     api_key_hash,
                     device_profile_id,
-                    timezone
+                    timezone,
+                    connection_protocol
                  )
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                  RETURNING *`,
                 [
                     name,
@@ -135,7 +139,8 @@ router.post(
                     total_cost_idr,
                     apiKeyHash,
                     finalProfileId || null,
-                    finalTimezone    // Use district-derived timezone
+                    finalTimezone,    // Use district-derived timezone
+                    finalProtocol
                 ]
             );
 
@@ -170,6 +175,9 @@ router.post(
                 if (assignResult.rows[0]) {
                     const u = assignResult.rows[0];
                     console.log(`[Auto-Assign] User ${u.id} assigned to new school ${school.id}`);
+
+                    // 🧹 Invalidate Cache so next request gets fresh data (with school_id)
+                    invalidateUserCache(u.id);
 
                     updatedUser = {
                         ...updatedUser,

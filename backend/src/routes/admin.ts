@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import crypto from 'crypto'; // Fix: Top-level import
 import { query } from '../db/index.js';
-import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { authenticateToken, requireRole, invalidateUserCache } from '../middleware/auth.js';
 import { validate } from '../middleware/validation.js';
 import { assignDeviceProfileSchema } from '../validation/adminSchemas.js';
 import { errorResponse } from '../utils/errorResponse.js';
@@ -79,6 +79,11 @@ router.post('/assign-school', authenticateToken, requireRole(['admin']), async (
              WHERE id = $3`,
             [school_id || null, newRole, user_id]
         );
+
+
+
+        // 🧹 Invalidate Cache
+        invalidateUserCache(user_id);
 
         console.log(`[Admin] Assigned user ${user_id} to school ${school_id || 'NULL'} with role ${newRole}`);
 

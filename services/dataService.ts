@@ -120,6 +120,19 @@ export const fetchPublicHistory = async (): Promise<any[]> => {
     }
 };
 
+
+export const fetchHourlyData = async (date: string): Promise<any[]> => {
+    const response = await fetchWithAuth(`${API_BASE}/dashboard/hourly?date=${date}`);
+    if (!response.ok) return [];
+    return await response.json();
+};
+
+export const fetchAnalyticsRange = async (start: string, end: string): Promise<any> => {
+    const response = await fetchWithAuth(`${API_BASE}/dashboard/analytics?start=${start}&end=${end}`);
+    if (!response.ok) return { daily_series: [], stats: {} };
+    return await response.json();
+};
+
 export const fetchSchoolLogs = async (schoolId: string): Promise<Telemetry[]> => {
     try {
         const response = await fetchWithAuth(
@@ -142,14 +155,15 @@ export const createSchool = async (schoolData: {
     name: string;
     type: string;
     district: string;
-    latitude: number;
-    longitude: number;
+    latitude?: number;
+    longitude?: number;
     total_capacity_kwp: number;
     total_cost_idr: number;
     timezone?: string;
     api_key?: string;
     device_profile_id?: string;
-}) => {
+    connection_protocol?: 'http' | 'mqtt';
+}): Promise<any> => {
     const response = await fetchWithAuth(`${API_BASE}/schools`, {
         method: 'POST',
         body: JSON.stringify(schoolData),
@@ -178,12 +192,23 @@ export const assignUserToSchool = async (userId: string, schoolId: string | null
     return await response.json();
 };
 
+export const archiveSchool = async (schoolId: string) => {
+    const response = await fetchWithAuth(`${API_BASE}/schools/${schoolId}`, {
+        method: 'DELETE'
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to archive organization');
+    }
+    return await response.json();
+};
+
 // WebSocket connection for real-time updates
 let ws: WebSocket | null = null;
 
 export const subscribeToTelemetry = (
     schoolId: string | null,
-    onData: (data: DashboardData) => void
+    onData: (message: any) => void
 ) => {
     // Close existing connection if any
     if (ws) {
@@ -206,12 +231,8 @@ export const subscribeToTelemetry = (
     ws.onmessage = async (event) => {
         try {
             const message = JSON.parse(event.data);
-
-            if (message.type === 'telemetry_update' || message.type === 'alert') {
-                // Fetch fresh dashboard data when update received
-                const dashboardData = await fetchDashboardData(schoolId || undefined);
-                onData(dashboardData);
-            }
+            // Pass the raw message to the context for merging
+            onData(message);
         } catch (error) {
             console.error('WebSocket message error:', error);
         }
@@ -247,13 +268,9 @@ export const subscribeToTelemetry = (
         };
 
         ws.onmessage = async (event) => {
-            // ... existing message handling ...
             try {
                 const message = JSON.parse(event.data);
-                if (message.type === 'telemetry_update' || message.type === 'alert') {
-                    const dashboardData = await fetchDashboardData(schoolId || undefined);
-                    onData(dashboardData);
-                }
+                onData(message);
             } catch (error) {
                 console.error('WebSocket message error:', error);
             }

@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { School, Telemetry, SchoolMetadata } from '../types';
-import { MapPin, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
+import { MapPin, Wifi, WifiOff, AlertTriangle, Moon } from 'lucide-react';
 import { WEATHER_ICONS } from '../constants';
 
 interface SchoolListProps {
@@ -18,7 +18,6 @@ export const SchoolList: React.FC<SchoolListProps> = ({ schools, currentData, me
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-6">
                 {schools.map(school => {
-                    // Fix: Use school.id instead of school.school_id
                     const data = currentData.find(d => d.school_id === school.id);
                     if (!data) return null;
 
@@ -29,6 +28,8 @@ export const SchoolList: React.FC<SchoolListProps> = ({ schools, currentData, me
                     let statusIcon = <Wifi className="w-3 h-3" />;
                     let statusText = 'Online';
 
+                    const isNight = data.ac_power_kw === 0 && data.fault === 'none';
+
                     if (data.fault === 'comm_down') {
                         statusColor = 'bg-slate-100 text-slate-500';
                         statusIcon = <WifiOff className="w-3 h-3" />;
@@ -37,12 +38,16 @@ export const SchoolList: React.FC<SchoolListProps> = ({ schools, currentData, me
                         statusColor = 'bg-red-100 text-red-700';
                         statusIcon = <AlertTriangle className="w-3 h-3" />;
                         statusText = 'Fault';
+                    } else if (isNight) {
+                        statusColor = 'bg-indigo-50 text-indigo-600';
+                        statusIcon = <Moon className="w-3 h-3" />;
+                        statusText = 'Standby';
                     }
 
                     return (
                         <div key={school.id} className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden border border-slate-100 group">
                             {/* Header */}
-                            <div className="bg-gradient-to-r from-blue-900 to-blue-800 p-4 text-white flex justify-between items-start">
+                            <div className={`p-4 text-white flex justify-between items-start transition-colors ${isNight ? 'bg-slate-800' : 'bg-gradient-to-r from-blue-900 to-blue-800'}`}>
                                 <div className="overflow-hidden">
                                     <h3 className="font-bold text-lg truncate" title={school.name}>{school.name}</h3>
                                     <span className="inline-block mt-1 text-xs bg-white/20 px-2 py-0.5 rounded-full backdrop-blur-sm">
@@ -67,9 +72,9 @@ export const SchoolList: React.FC<SchoolListProps> = ({ schools, currentData, me
 
                                 {/* Key Metrics Grid */}
                                 <div className="grid grid-cols-2 gap-3 mb-4">
-                                    <div className="bg-blue-50 p-2 rounded-lg">
-                                        <p className="text-[10px] text-blue-600 font-semibold uppercase">Output</p>
-                                        <p className="text-lg font-bold text-blue-900 leading-tight">{data.ac_power_kw.toFixed(2)} <span className="text-xs font-normal">kW</span></p>
+                                    <div className={`p-2 rounded-lg ${isNight ? 'bg-slate-50' : 'bg-blue-50'}`}>
+                                        <p className={`text-[10px] font-semibold uppercase ${isNight ? 'text-slate-500' : 'text-blue-600'}`}>Output</p>
+                                        <p className={`text-lg font-bold leading-tight ${isNight ? 'text-slate-700' : 'text-blue-900'}`}>{data.ac_power_kw.toFixed(2)} <span className="text-xs font-normal">kW</span></p>
                                     </div>
                                     <div className="bg-green-50 p-2 rounded-lg">
                                         <p className="text-[10px] text-green-600 font-semibold uppercase">Daily</p>
@@ -81,12 +86,14 @@ export const SchoolList: React.FC<SchoolListProps> = ({ schools, currentData, me
                                 <div className="mb-4">
                                     <div className="flex justify-between text-xs mb-1">
                                         <span className="text-slate-500">Load</span>
-                                        <span className="font-medium text-slate-700">{percentCapacity.toFixed(0)}%</span>
+                                        <span className="font-medium text-slate-700">{isNight ? 'Idle' : `${percentCapacity.toFixed(0)}%`}</span>
                                     </div>
                                     <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
                                         <div
-                                            className={`h-full rounded-full transition-all duration-500 ${data.fault !== 'none' && data.fault !== 'comm_down' ? 'bg-red-500' : 'bg-blue-500'}`}
-                                            style={{ width: `${Math.min(100, percentCapacity)}%` }}
+                                            className={`h-full rounded-full transition-all duration-500 ${data.fault !== 'none' && data.fault !== 'comm_down' ? 'bg-red-500' :
+                                                    isNight ? 'bg-indigo-300' : 'bg-blue-500'
+                                                }`}
+                                            style={{ width: isNight ? '100%' : `${Math.min(100, percentCapacity)}%` }}
                                         />
                                     </div>
                                 </div>

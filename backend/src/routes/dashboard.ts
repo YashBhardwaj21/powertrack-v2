@@ -74,7 +74,7 @@ router.get('/summary', authenticateToken, validateUUID('school_id'), async (req:
 
         // 4. Derived Calculations (Safe from crash)
         const defaultCommunityStats = { active_peers: 0, total_surplus_kw: 0, total_deficit_kw: 0, net_grid_flow_kw: 0, sharing_potential_idr: 0 };
-        const defaultFinancialStats = { total_capex_idr: 0, total_savings_idr: 0, payback_years: 0, irr_percent: 0, lcoe_idr_per_kwh: 0, payback_progress_percent: 0, today_savings_idr: 0, month_savings_idr: 0, co2_avoided_kg: 0, trees_planted: 0, car_km_avoided: 0 };
+        const defaultFinancialStats = { total_capex_idr: 0, total_savings_idr: 0, payback_years: 0, irr_percent: 0, lcoe_idr_per_kwh: 0, payback_progress_percent: 0, today_savings_idr: 0, month_savings_idr: 0, co2_avoided_kg: 0 };
         const defaultModelMetrics = { version: '1.0.0', last_trained: new Date().toISOString(), rmse: 0, mape: 0, residuals_trend: [] as number[], anomaly_detection: { precision: 0, recall: 0, f1_score: 0, total_anomalies_detected: 0 } };
 
         let community_stats = defaultCommunityStats;

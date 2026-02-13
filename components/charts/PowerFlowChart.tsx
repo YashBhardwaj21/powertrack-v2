@@ -11,7 +11,7 @@ interface PowerFlowChartProps {
         avg_import: number; // Grid Import
         avg_export: number; // Grid Export
     }>;
-    timezone?: string; // School's IANA timezone
+    timezone?: string;
 }
 
 export const PowerFlowChart: React.FC<PowerFlowChartProps> = ({ data, timezone = 'UTC' }) => {
@@ -145,7 +145,7 @@ export const PowerFlowChart: React.FC<PowerFlowChartProps> = ({ data, timezone =
                 }
             ]
         };
-    }, [data, timezone]);
+    }, [data]);
 
     if (!data || data.length === 0) {
         return (

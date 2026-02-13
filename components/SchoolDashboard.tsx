@@ -1,12 +1,12 @@
 import React, { useContext } from 'react';
 import { AuthContext } from '../App';
 import { useDashboard } from '../context/DashboardContext';
-import { formatPower, formatEnergy, formatCO2, formatPercentage, formatLastUpdated } from '../utils/formatters';
+import { formatPower, formatEnergy, formatCO2, formatPercentage, formatLastUpdated, formatCurrency } from '../utils/formatters';
 import { isFresh } from '../utils/timezone';
 import { PowerFlowChart } from './charts/PowerFlowChart';
 import {
     Zap, Home, ArrowRightLeft, Leaf, Calendar, CheckCircle2, AlertTriangle,
-    Wifi, Activity, Sun, Battery, Server
+    Wifi, Activity, Sun, Battery, Server, DollarSign
 } from 'lucide-react';
 
 export const SchoolDashboard: React.FC = () => {
@@ -15,6 +15,7 @@ export const SchoolDashboard: React.FC = () => {
 
     // 1. Safe Data Access
     const schoolId = auth?.user?.school_id;
+    const school = data?.schools?.find(s => s.id === schoolId);
     const currentData = data?.current_data?.filter(d => d.school_id === schoolId) || [];
     // Get the MOST RECENT telemetry point (assuming sorted or take last)
     // The backend usually sends current_data as ONE point per school (latest).
@@ -48,14 +49,16 @@ export const SchoolDashboard: React.FC = () => {
     // Filter for current month? Assuming daily_historical is relevant range.
     const monthEnergy = data?.daily_historical?.reduce((sum, day) => sum + Number(day.total_energy_kwh), 0) || 0;
 
-    // CO2 Avoided
+    // CO2 Avoided & Savings
     const co2Factor = data?.metadata?.carbon_intensity_kg_per_kwh || 0.85; // Default fallback
-    const co2Avoided = todayEnergy * co2Factor; // Or lifetime? User said "Energy x Carbon". Usually lifetime is more impressive, but "Today" context -> Today CO2.
+    const tariff = data?.metadata?.electricity_rate_idr || 1444.70; // Fallback to standard tariff
+
     // Let's use Lifetime Energy for CO2 if available? 
     // Types says `leaderboard_stats` has `total_energy_kwh` (lifetime).
     const lifetimeStats = data?.leaderboard_stats?.find(s => s.school_id === schoolId);
     const lifetimeEnergy = Number(lifetimeStats?.total_energy_kwh) || 0;
     const lifetimeCO2 = lifetimeEnergy * co2Factor;
+    const lifetimeSavings = lifetimeEnergy * tariff;
 
     // 4. Component Status Logic (using timezone-aware freshness check)
     const isOnline = latestTelemetry && isFresh(latestTelemetry.timestamp, 5 * 60 * 1000); // 5 mins
@@ -89,7 +92,7 @@ export const SchoolDashboard: React.FC = () => {
             <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-slate-200 pb-5">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 tracking-tight leading-none uppercase">
-                        {auth?.user?.school_name || 'School Command Center'}
+                        {school?.name || 'School Command Center'}
                     </h1>
                     <p className="text-slate-500 text-xs mt-2 font-medium">
                         Real-time System Monitoring
@@ -109,7 +112,7 @@ export const SchoolDashboard: React.FC = () => {
             <div>
                 <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-3">Live Power Metrics</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {/* Solar Generation */}
+                    {/* Solar Generation (Now Lifetime Energy) */}
                     <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden group">
                         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
                             <Sun className="w-16 h-16 text-amber-500" />
@@ -119,12 +122,10 @@ export const SchoolDashboard: React.FC = () => {
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Solar Generation</span>
                         </div>
                         <div>
-                            <span className="text-3xl font-bold text-slate-900">{solarKw.toFixed(2)}</span>
-                            <span className="text-sm font-medium text-slate-400 ml-1">kW</span>
+                            {/* Changed to Lifetime Energy as primary */}
+                            <span className="text-3xl font-bold text-slate-900">{formatEnergy(lifetimeEnergy)}</span>
                         </div>
-                        <div className="h-1 w-full bg-slate-100 rounded-full mt-2 overflow-hidden">
-                            <div className="h-full bg-amber-500 transition-all duration-1000" style={{ width: `${Math.min(100, (solarKw / 10) * 100)}%` }}></div>
-                        </div>
+                        {/* Subtitle removed as requested */}
                     </div>
 
                     {/* Load Consumption */}
@@ -137,6 +138,7 @@ export const SchoolDashboard: React.FC = () => {
                             <span className="text-3xl font-bold text-slate-900">{loadKw.toFixed(2)}</span>
                             <span className="text-sm font-medium text-slate-400 ml-1">kW</span>
                         </div>
+                        {/* Removed Today pills as requested */}
                     </div>
 
                     {/* Grid Interaction */}
@@ -152,27 +154,22 @@ export const SchoolDashboard: React.FC = () => {
                                 </span>
                                 <span className="text-sm font-medium text-slate-400 ml-1">kW</span>
                             </div>
-                            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                                {gridNetKw > 0 ? 'Importing (Drawing)' : 'Exporting (Feeding)'}
-                            </span>
+                        </div>
+                        <div className={`mt-2 text-[10px] font-bold inline-block px-2 py-0.5 rounded-full ${gridNetKw > 0 ? 'text-red-600 bg-red-50' : 'text-emerald-600 bg-emerald-50'}`}>
+                            {gridNetKw > 0 ? 'Importing' : 'Exporting'}
                         </div>
                     </div>
 
-                    {/* Self Consumption */}
+                    {/* Lifetime Savings (Was Lifetime Yield) */}
                     <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between h-32">
                         <div className="flex items-center gap-2 mb-2">
-                            <Leaf className="w-4 h-4 text-emerald-500" />
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Self Consumption</span>
+                            <DollarSign className="w-4 h-4 text-emerald-500" />
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Lifetime Savings</span>
                         </div>
                         <div>
-                            <span className="text-3xl font-bold text-slate-900">{selfConsumptionRatio.toFixed(0)}%</span>
+                            <span className="text-3xl font-bold text-slate-900">{formatCurrency(lifetimeSavings)}</span>
                         </div>
-                        <div className="h-1 w-full bg-slate-100 rounded-full mt-2 overflow-hidden">
-                            <div
-                                className={`h-full transition-all duration-1000 ${selfConsumptionRatio > 80 ? 'bg-emerald-500' : selfConsumptionRatio > 50 ? 'bg-amber-500' : 'bg-red-500'}`}
-                                style={{ width: `${selfConsumptionRatio}%` }}
-                            ></div>
-                        </div>
+                        {/* Logic: Removed "Saved" pill as requested. */}
                     </div>
                 </div>
             </div>
@@ -184,7 +181,7 @@ export const SchoolDashboard: React.FC = () => {
                         <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Live Power Flow (24h)</h3>
                     </div>
                     <div className="h-[320px]">
-                        <PowerFlowChart data={chartData} timezone={data?.metadata?.school_timezone} />
+                        <PowerFlowChart data={chartData} timezone={school?.timezone || 'Asia/Jakarta'} />
                     </div>
                 </div>
 

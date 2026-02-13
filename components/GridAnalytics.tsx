@@ -28,31 +28,26 @@ export const GridAnalytics: React.FC<GridAnalyticsProps> = ({ currentData, histo
     const hasHistoricalProfile = sourceData.length > 0;
 
     const curveData = sourceData.map(h => {
-        // h is { hour, avg_power, energy }
-        // Simple heuristic if load/grid data isn't explicitly in history table yet (backend just sends avg_power/energy)
-        // If we want PERFECT history, we'd need to agg load/grid in backend query too.
-        // For now, we project based on current ratios to keep it "dynamic" but plausible if history lacks columns.
-        // Ideally backend `hourly_historical` should include avg_load, avg_export etc.
-        // But let's check what backend sends: `avg_power` and `energy`.
-
+        // Now using REAL data from backend (no longer hardcoded 0s)
         const solarVal = Number(h.avg_power) || 0;
         const loadVal = Number(h.avg_load) || 0;
-        // If grid export/import are directly available, use them directly for calculating net?
-        // But for this stacked char/visual, we usually want Solar vs Load vs Grid
-        // Grid = Load - Solar (if positive, import. if negative, export) 
 
-        // Actually the backend provides avg_import and avg_export.
-        // Let's use those if available, or fall back to calculation.
+        // Grid Logic:
+        // Use avg_import if available, or fall back to calculation
+        // But for visual stacking (Solar vs Load), Grid is usually the gap.
+        // Let's visualize: 
+        // 1. Load (Base consumption)
+        // 2. Solar (Generation)
+        // 3. Grid Interaction (The delta)
 
-        // Note: The graph expects 'Grid' as interaction. 
-        // If we want "Net Grid Interaction", it's |Solar - Load| usually, OR Import + Export (never both at same time theoretically, but in avg they might overlap).
+        // If we strictly follow the AreaChart keys:
+        // Load: The consumption curve
+        // Solar: The generation curve
+        // Grid: The difference (Import/Export)
 
-        // Let's stick to the previous visual definition: 
-        // Solar line
-        // Load line
-        // Grid area? The previous code was: Grid: |Solar - Load|. 
-
-        // Let's use the REAL load. 
+        // The previous logic was: Grid = |Solar - Load|
+        // This visualizes the "Activity" or "Stress" on the grid connection.
+        // Let's keep that visual for now as it's intuitive for "Grid Interaction".
 
         return {
             time: formatTimeInSchoolTZ(h.hour, timezone),

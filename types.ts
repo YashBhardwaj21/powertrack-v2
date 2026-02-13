@@ -10,6 +10,7 @@ export interface School {
     lat: number;
     lng: number;
   };
+  timezone?: string;
   // Removed flat latitude/longitude to enforce structured access
 }
 
@@ -54,6 +55,13 @@ export interface Telemetry {
   ac_current: number;
   total_energy_kwh: number;
   daily_energy_kwh: number;
+  daily_energy_kwh: number;
+  daily_import_kwh: number;
+  daily_export_kwh: number;
+  daily_load_kwh: number;
+  total_load_kwh?: number;
+  total_import_kwh?: number;
+  total_export_kwh?: number;
   irradiance_wm2: number;
   panel_temp_c: number;
   performance_ratio: number;
@@ -124,8 +132,6 @@ export interface ModelMetrics {
     recall: number;
     f1_score: number;
     co2_avoided_kg: number;
-    trees_planted: number;
-    car_km_avoided: number;
     data_sufficiency?: {
       days_observed: number;
       is_projected: boolean;

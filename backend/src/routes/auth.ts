@@ -74,11 +74,11 @@ router.post(
             const { password_hash, ...safeUser } = user;
 
             // Log successful login
-            logger.info('User logged in', {
+            logger.info({
                 userId: user.id,
                 role: user.role,
                 schoolId: user.school_id
-            });
+            }, 'User logged in');
 
             return res.json({
                 token,
@@ -88,7 +88,7 @@ router.post(
                 },
             });
         } catch (error) {
-            logger.error('Login error', { error: String(error) });
+            logger.error({ error: String(error) }, 'Login error');
             return errorResponse(res, 500, { error: 'Internal server error', code: 'SERVER_ERROR' });
         }
     }
@@ -199,14 +199,14 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
 
         // DEV MODE: Log the link
         const resetLink = `http://localhost:3000/reset-password?token=${resetToken}`;
-        logger.info('🔑 PASSWORD RESET LINK:', { email, resetLink });
+        logger.info({ email, resetLink }, '🔑 PASSWORD RESET LINK');
         console.log('\n\n==================================================');
         console.log('🔗 PASSWORD RESET LINK:', resetLink);
         console.log('==================================================\n\n');
 
         return res.json({ message: 'If that email exists, we sent a reset link to it.' });
     } catch (error) {
-        logger.error('Forgot password error:', error);
+        logger.error({ error }, 'Forgot password error');
         return errorResponse(res, 500, { error: 'Internal server error', code: 'SERVER_ERROR' });
     }
 });
@@ -237,7 +237,7 @@ router.post('/reset-password', async (req: Request, res: Response) => {
 
         return res.json({ message: 'Password updated successfully' });
     } catch (error) {
-        logger.error('Reset password error:', error);
+        logger.error({ error }, 'Reset password error');
         return errorResponse(res, 500, { error: 'Internal server error', code: 'SERVER_ERROR' });
     }
 });
@@ -255,31 +255,39 @@ router.get('/verify', async (req: Request, res: Response) => {
     }
 
     try {
+        console.log('[DEBUG] Verify: Verifying token...');
         const decoded = jwt.verify(token, config.jwtSecret) as {
             userId: string;
         };
+        console.log('[DEBUG] Verify: Token verified. UserId:', decoded.userId);
 
         const result = await query(
             'SELECT id, email, full_name, role, school_id FROM public.users WHERE id = $1',
             [decoded.userId]
         );
+        console.log('[DEBUG] Verify: User query result count:', result.rows.length);
 
         if (result.rows.length === 0) {
+            console.log('[DEBUG] Verify: User not found');
             return errorResponse(res, 404, { error: 'User not found', code: 'USER_NOT_FOUND' });
         }
 
         const user = result.rows[0];
+        console.log('[DEBUG] Verify: User found. SchoolID:', user.school_id);
 
         let school = null;
         if (user.school_id) {
+            console.log('[DEBUG] Verify: Fetching school...');
             const schoolResult = await query(
                 'SELECT id, name, type, district FROM public.schools WHERE id = $1',
                 [user.school_id]
             );
             school = schoolResult.rows[0] || null;
+            console.log('[DEBUG] Verify: School fetched:', school ? 'Yes' : 'No');
         }
 
         // Generate fresh JWT with latest permissions
+        console.log('[DEBUG] Verify: Signing new token...');
         const newToken = jwt.sign(
             {
                 userId: user.id,
@@ -290,6 +298,7 @@ router.get('/verify', async (req: Request, res: Response) => {
             config.jwtSecret as string,
             { expiresIn: config.jwtExpiry as any }
         );
+        console.log('[DEBUG] Verify: Token signed.');
 
         return res.json({
             token: newToken,
@@ -299,6 +308,7 @@ router.get('/verify', async (req: Request, res: Response) => {
             },
         });
     } catch (error) {
+        console.error('[DEBUG] Verify: Error caught:', error);
         return errorResponse(res, 403, { error: 'Invalid or expired token', code: 'AUTH_TOKEN_INVALID' });
     }
 });

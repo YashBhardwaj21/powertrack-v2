@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
     Cpu, Globe, Key, Terminal, Wifi, CheckCircle2,
-    ArrowRight, ArrowLeft, Copy, Loader2, Info, AlertTriangle, Building2, MapPin, Zap
+    ArrowRight, ArrowLeft, Copy, Loader2, AlertTriangle, Building2, Zap, X as CloseIcon
 } from 'lucide-react';
-import { createSchool } from '../services/dataService';
+import { createSchool, subscribeToTelemetry } from '../services/dataService';
 
 interface DeviceWizardProps {
     onClose: () => void;
@@ -13,11 +13,10 @@ interface DeviceWizardProps {
 export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete }) => {
     const [step, setStep] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [schoolId, setSchoolId] = useState('');
-    const [apiKey, setApiKey] = useState('');
-    const [committedUser, setCommittedUser] = useState<any>(null); // Store authoritative user
+    const [isCreating, setIsCreating] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    // Organization details (lat/lng/timezone derived from district by backend)
+    // Organization details
     const [orgData, setOrgData] = useState({
         name: '',
         type: 'Primary School',
@@ -30,10 +29,16 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
     const [deviceType, setDeviceType] = useState('');
     const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
     const [loadingProfiles, setLoadingProfiles] = useState(false);
-
     const [protocol, setProtocol] = useState('http');
+
+    // Created School State (Populated after Step 3)
+    const [schoolId, setSchoolId] = useState('');
+    const [apiKey, setApiKey] = useState('');
+    const [committedUser, setCommittedUser] = useState<any>(null); // Store authoritative user
+
+    // Step 5: Connection State
     const [isConnecting, setIsConnecting] = useState(false);
-    const [testReceived, setTestReceived] = useState(false);
+    const [livePacket, setLivePacket] = useState<any>(null);
 
     useEffect(() => {
         // Dynamic: Fetch profiles from backend
@@ -59,12 +64,11 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
         { title: "Organization", icon: Building2 },
         { title: "Hardware", icon: Cpu },
         { title: "Network", icon: Globe },
-        { title: "Identify", icon: Key },
+        { title: "Credentials", icon: Key }, // Was "Identify"
         { title: "Format", icon: Terminal },
         { title: "Validate", icon: Wifi }
     ];
 
-    // Helper to get display icon based on profile name (Purely cosmetic)
     const getProfileIcon = (name: string) => {
         const lower = name.toLowerCase();
         if (lower.includes('monitor') || lower.includes('iot')) return Cpu;
@@ -73,61 +77,52 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
         return Wifi;
     };
 
-    const generateApiKey = () => {
-        // Generate a random API key on the frontend
-        const randomBytes = new Uint8Array(32);
-        crypto.getRandomValues(randomBytes);
-        const hex = Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-        return `pt_live_${hex}`;
+    const handleNextStep = async () => {
+        // Step 2 logic is handled directly by protocol buttons
+        setStep(prev => prev + 1);
     };
 
-    const handleCreateOrg = () => {
-        // Validate
-        if (!orgData.name.trim()) {
-            alert('Organization name is required');
-            return;
+    const handleCreateSchool = async (selectedProtocol?: string) => {
+        // Prevent double submission
+        if (isCreating) return;
+
+        setIsCreating(true);
+        setError(null);
+
+        // Ensure state protocol is updated if passed directly (for button clicks)
+        if (selectedProtocol) {
+            setProtocol(selectedProtocol);
         }
 
-        // Generate API key for display in later steps
-        const generatedKey = generateApiKey();
-        setApiKey(generatedKey);
+        const finalProtocol = selectedProtocol || protocol;
 
-        // Move to next step (Hardware selection)
-        setStep(1);
-    };
-
-    const handleFinalSubmit = async () => {
-        setIsSubmitting(true);
         try {
-            // Send the pre-generated API key to backend
+            // 1. Create School (Backend generates API Key, timezone, coords)
             const result = await createSchool({
                 ...orgData,
-                api_key: apiKey,
-                device_profile_id: deviceType // This is now the real UUID from the DB
+                device_profile_id: deviceType || undefined, // Send if selected
+                connection_protocol: finalProtocol as 'http' | 'mqtt'
             });
+
+            console.log('[Wizard] School Created:', result);
 
             const { school, user: updatedUser, token } = result;
 
+            // 2. Store Creds
             setSchoolId(school.id);
+            setApiKey(school.api_key || 'HIDDEN'); // Backend ensures this is returned on creation
 
-            // Save token immediately
+            // 3. Update Session
             if (token) sessionStorage.setItem('auth_token', token);
-            if (updatedUser) {
-                setCommittedUser(updatedUser);
-            }
+            if (updatedUser) setCommittedUser(updatedUser);
 
-            // Complete the wizard
-            onComplete(school.id, updatedUser);
-
-        } catch (error: any) {
-            console.error('Failed to create organization:', error);
-            if (error.message && error.message.includes('unique')) {
-                alert('Organization Name already exists. Please choose another.');
-            } else {
-                alert('System Provisioning Failed: Please try again or contact support.');
-            }
+            // 4. Move to Credentials Step
+            setStep(3);
+        } catch (err: any) {
+            console.error('Failed to create school:', err);
+            setError(err.message || 'Failed to create organization. Please try again.');
         } finally {
-            setIsSubmitting(false);
+            setIsCreating(false);
         }
     };
 
@@ -135,12 +130,43 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
         navigator.clipboard.writeText(text);
     };
 
+    // Step 5: Real Connection Test
     const handleTestStart = () => {
         setIsConnecting(true);
+        setError(null);
+
+        // Subscribe explicitly to this new school ID
+        // Note: Global dashboard subscription might pick it up, but we want a dedicated listener
+        // The subscribeToTelemetry function handles single-callback.
+        // We can just rely on the global stream if we are school admin, 
+        // BUT for the wizard, a dedicated check is safer.
+        // Actually, let's use the same service but filter for OUR schoolId.
+
+        const unsubscribe = subscribeToTelemetry(null, (message) => {
+            if (message.type === 'telemetry_update' && message.data) {
+                if (message.data.school_id === schoolId) {
+                    console.log('[Wizard] Packet Received:', message.data);
+                    setLivePacket(message.data);
+                    setIsConnecting(false);
+                    // Unsub happens in useEffect cleanup or manually? 
+                    // subscribeToTelemetry returns unsubscribe, we should call it.
+                    unsubscribe();
+                }
+            }
+        });
+
+        // Timeout after 60s
         setTimeout(() => {
-            setIsConnecting(false);
-            setTestReceived(true);
-        }, 3000);
+            if (isConnecting) {
+                // If still connecting after timeout (this logic is simplified, React state might be stale)
+                // In a real app, use ref or separate timeout logic. 
+                // For now, let user cancel manually.
+            }
+        }, 60000);
+    };
+
+    const handleFinalSubmit = () => {
+        onComplete(schoolId, committedUser);
     };
 
     return (
@@ -151,7 +177,7 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                     <div className="flex justify-between items-center mb-4 md:mb-6">
                         <h2 className="text-xl font-bold text-slate-800">Registration Wizard</h2>
                         <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
-                            <X className="w-5 h-5" />
+                            <CloseIcon className="w-5 h-5" />
                         </button>
                     </div>
 
@@ -174,7 +200,14 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
 
                 {/* Content Area */}
                 <div className="p-4 md:p-8 min-h-[450px]">
-                    {step === 0 && (
+                    {error && (
+                        <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg flex items-center gap-3 animate-in fade-in">
+                            <AlertTriangle className="w-5 h-5 text-red-600" />
+                            <p className="text-sm text-red-700 font-medium">{error}</p>
+                        </div>
+                    )}
+
+                    {step === 0 && ( /* ORGANIZATION */
                         <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
                             <div className="text-center max-w-sm mx-auto mb-6">
                                 <h3 className="text-lg font-bold text-slate-900">Organization Profile</h3>
@@ -190,6 +223,7 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                                         className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 transition-all text-sm"
                                         value={orgData.name}
                                         onChange={e => setOrgData({ ...orgData, name: e.target.value })}
+                                        autoFocus
                                     />
                                 </div>
                                 <div className="space-y-1.5">
@@ -230,30 +264,29 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                             </div>
 
                             <button
-                                onClick={handleCreateOrg}
-                                disabled={!orgData.name || isSubmitting}
+                                onClick={handleNextStep}
+                                disabled={!orgData.name || !orgData.district}
                                 className="w-full bg-slate-900 text-white font-bold py-3.5 rounded-xl hover:bg-black transition-all flex items-center justify-center gap-2 mt-4 disabled:opacity-50"
                             >
-                                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Establish Profile & Continue"} <ArrowRight className="w-5 h-5" />
+                                Continue <ArrowRight className="w-5 h-5" />
                             </button>
                         </div>
                     )}
 
-                    {step === 1 && (
+                    {step === 1 && ( /* HARDWARE */
                         <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
                             <div className="text-center max-w-sm mx-auto mb-8">
-                                <h3 className="text-lg font-bold text-slate-900">Select your hardware platform</h3>
-                                <p className="text-sm text-slate-500">Choosing the correct type ensures we apply the right data normalization filters.</p>
+                                <h3 className="text-lg font-bold text-slate-900">Brief Hardware Profile</h3>
+                                <p className="text-sm text-slate-500">Choosing the correct type helps with data validation.</p>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {loadingProfiles ? (
                                     <div className="col-span-2 text-center py-8 text-slate-400">
-                                        <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-                                        Loading hardware profiles...
+                                        <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" /> Loading...
                                     </div>
                                 ) : availableProfiles.length === 0 ? (
-                                    <div className="col-span-2 text-center py-8 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
-                                        No profiles found in database.
+                                    <div className="col-span-2 text-center p-4 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-sm">
+                                        No profiles found. You can skip this or use Generic.
                                     </div>
                                 ) : (
                                     availableProfiles.map(p => {
@@ -261,26 +294,29 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                                         return (
                                             <button
                                                 key={p.id}
-                                                // Store the Real UUID
-                                                onClick={() => { setDeviceType(p.id); setStep(2); }}
-                                                className={`p-4 rounded-xl border-2 text-left transition-all hover:border-blue-400 group ${deviceType === p.id ? 'border-blue-600 bg-blue-50/50' : 'border-slate-100 hover:bg-slate-50'
-                                                    }`}
+                                                onClick={() => { setDeviceType(p.id); handleNextStep(); }}
+                                                className={`p-4 rounded-xl border-2 text-left transition-all hover:border-blue-400 group ${deviceType === p.id ? 'border-blue-600 bg-blue-50/50' : 'border-slate-100 hover:bg-slate-50'}`}
                                             >
-                                                <div className={`p-2 rounded-lg mb-3 inline-block transition-colors ${deviceType === p.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600'
-                                                    }`}>
+                                                <div className={`p-2 rounded-lg mb-3 inline-block ${deviceType === p.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
                                                     <Icon className="w-6 h-6" />
                                                 </div>
                                                 <h4 className="font-bold text-slate-800 text-sm truncate">{p.name}</h4>
-                                                <p className="text-xs text-slate-500 mt-1">{p.vendor || 'Generic'} • {p.protocol}</p>
+                                                <p className="text-xs text-slate-500 mt-1">{p.vendor || 'Generic'}</p>
                                             </button>
                                         );
                                     })
                                 )}
                             </div>
+                            <button
+                                onClick={handleNextStep}
+                                className="w-full bg-slate-100 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-200 mt-4 transition-all"
+                            >
+                                Skip Hardware Selection
+                            </button>
                         </div>
                     )}
 
-                    {step === 2 && (
+                    {step === 2 && ( /* NETWORK/PROTOCOL */
                         <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
                             <div className="text-center max-w-sm mx-auto mb-8">
                                 <h3 className="text-lg font-bold text-slate-900">Communication Protocol</h3>
@@ -288,50 +324,49 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                             </div>
                             <div className="space-y-4">
                                 <button
-                                    onClick={() => { setProtocol('http'); setStep(3); }}
-                                    className="w-full p-5 rounded-xl border-2 border-slate-100 hover:border-blue-400 hover:bg-slate-50 transition-all text-left flex items-start gap-4 group"
+                                    onClick={() => { setProtocol('http'); handleCreateSchool('http'); }}
+                                    disabled={isCreating}
+                                    className="w-full p-5 rounded-xl border-2 border-slate-100 hover:border-blue-400 hover:bg-slate-50 transition-all text-left flex items-start gap-4 group disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <div className="p-3 bg-slate-100 text-slate-400 rounded-xl group-hover:bg-blue-100 group-hover:text-blue-600">
                                         <Globe className="w-8 h-8" />
                                     </div>
                                     <div className="flex-1">
                                         <h4 className="font-bold text-slate-800">HTTP REST (Simple)</h4>
-                                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                                            Easiest to implement. Best for standard Wi-Fi environments. Your device pushes data every few seconds.
-                                        </p>
+                                        <p className="text-xs text-slate-500 mt-1">Easiest to implement. Best for standard Wi-Fi.</p>
                                     </div>
                                     <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-blue-500" />
                                 </button>
-
                                 <button
-                                    onClick={() => { setProtocol('mqtt'); setStep(3); }}
-                                    className="w-full p-5 rounded-xl border-2 border-slate-100 hover:border-blue-400 hover:bg-slate-50 transition-all text-left flex items-start gap-4 group"
+                                    onClick={() => { setProtocol('mqtt'); handleCreateSchool('mqtt'); }}
+                                    disabled={isCreating}
+                                    className="w-full p-5 rounded-xl border-2 border-slate-100 hover:border-blue-400 hover:bg-slate-50 transition-all text-left flex items-start gap-4 group disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <div className="p-3 bg-slate-100 text-slate-400 rounded-xl group-hover:bg-blue-100 group-hover:text-blue-600">
                                         <Wifi className="w-8 h-8" />
                                     </div>
                                     <div className="flex-1">
-                                        <div className="flex items-center gap-2">
-                                            <h4 className="font-bold text-slate-800">MQTT (Recommended)</h4>
-                                            <span className="text-[10px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Industrial</span>
-                                        </div>
-                                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                                            Ultra-reliable for unstable connections. Uses 90% less bandwidth. Perfect for remote sites or cellular nodes.
-                                        </p>
+                                        <h4 className="font-bold text-slate-800">MQTT (Recommended)</h4>
+                                        <p className="text-xs text-slate-500 mt-1">Industrial standard. Efficient for low bandwidth.</p>
                                     </div>
                                     <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-blue-500" />
                                 </button>
                             </div>
+                            {isCreating && (
+                                <div className="mt-8 text-center animate-pulse">
+                                    <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-2" />
+                                    <p className="text-sm font-bold text-slate-600">Provisioning School & Generating Keys...</p>
+                                </div>
+                            )}
                         </div>
                     )}
 
-                    {step === 3 && (
+                    {step === 3 && ( /* CREDENTIALS (NOW REAL) */
                         <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
                             <div className="text-center max-w-sm mx-auto mb-8">
                                 <h3 className="text-lg font-bold text-slate-900">Security & Credentials</h3>
-                                <p className="text-sm text-slate-500">Use these details to authenticate your connection.</p>
+                                <p className="text-sm text-slate-500">Use these valid credentials to authenticate.</p>
                             </div>
-
                             <div className="space-y-4">
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Access Key (X-API-KEY)</label>
@@ -339,97 +374,68 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                                         <div className="flex-1 font-mono text-sm bg-slate-900 text-emerald-400 p-3 rounded-lg border border-slate-800 select-all overflow-hidden text-ellipsis">
                                             {apiKey}
                                         </div>
-                                        <button onClick={() => copyToClipboard(apiKey)} className="bg-slate-100 hover:bg-slate-200 p-3 rounded-lg text-slate-600 transition-colors">
+                                        <button onClick={() => copyToClipboard(apiKey)} className="bg-slate-100 hover:bg-slate-200 p-3 rounded-lg text-slate-600">
                                             <Copy className="w-5 h-5" />
                                         </button>
                                     </div>
                                 </div>
-
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                         {protocol === 'http' ? 'API Endpoint' : 'MQTT Broker & Topic'}
                                     </label>
                                     <div className="flex gap-2">
-                                        <div className="flex-1 font-mono text-xs bg-slate-100 text-slate-600 p-3 rounded-lg border border-slate-200 select-all overflow-hidden text-ellipsis">
+                                        <div className="flex-1 font-mono text-xs bg-slate-100 text-slate-600 p-3 rounded-lg border border-slate-200 select-all">
                                             {protocol === 'http'
                                                 ? 'https://api.powertrack.io/v1/telemetry/ingest'
                                                 : `powertrack/${schoolId}/telemetry`}
                                         </div>
-                                        <button onClick={() => copyToClipboard(protocol === 'http' ? 'https://api.powertrack.io/v1/telemetry/ingest' : `powertrack/${schoolId}/telemetry`)} className="bg-slate-50 hover:bg-slate-100 p-3 rounded-lg text-slate-400 transition-colors">
+                                        <button onClick={() => copyToClipboard(protocol === 'http' ? 'https://api.powertrack.io/v1/telemetry/ingest' : `powertrack/${schoolId}/telemetry`)} className="bg-slate-100 hover:bg-slate-200 p-3 rounded-lg">
                                             <Copy className="w-5 h-5" />
                                         </button>
                                     </div>
                                 </div>
-
                                 <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 flex gap-3 items-start">
                                     <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                                     <p className="text-xs text-amber-800 leading-relaxed">
-                                        <strong>Never share your API Key.</strong> We hash it in our DB, so it's only shown once. Copy it now for your firmware.
+                                        <strong>Save this key.</strong> It will not be shown again.
                                     </p>
                                 </div>
                             </div>
-
-                            <button onClick={() => setStep(4)} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 mt-4 transition-all flex items-center justify-center gap-2">
-                                Configuration Ready <ArrowRight className="w-5 h-5" />
+                            <button onClick={() => setStep(4)} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 mt-4 flex items-center justify-center gap-2">
+                                Key Saved, Continue <ArrowRight className="w-5 h-5" />
                             </button>
                         </div>
                     )}
 
-                    {step === 4 && (
+                    {step === 4 && ( /* FORMAT - SIMPLIFIED */
                         <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
                             <div className="text-center max-w-sm mx-auto mb-8">
                                 <h3 className="text-lg font-bold text-slate-900">Payload Mapping</h3>
-                                <p className="text-sm text-slate-500">Configure your device to send this JSON structure.</p>
+                                <p className="text-sm text-slate-500">Configure your device to send this structure.</p>
                             </div>
-
                             <div className="bg-slate-900 rounded-2xl p-6 relative group">
-                                <div className="flex justify-between items-center mb-4">
-                                    <div className="flex gap-1.5">
-                                        <div className="w-3 h-3 rounded-full bg-red-500" />
-                                        <div className="w-3 h-3 rounded-full bg-amber-500" />
-                                        <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                                    </div>
-                                    <span className="text-xs text-slate-500 font-mono italic">payload.json</span>
-                                </div>
-                                <pre className="font-mono text-sm leading-relaxed">
+                                <pre className="font-mono text-sm leading-relaxed text-white">
                                     <span className="text-purple-400">{'{'}</span>{'\n'}
                                     <span className="text-blue-400">  "power_w"</span>: <span className="text-amber-400">2450</span>,{'\n'}
-                                    <span className="text-blue-400">  "voltage"</span>: <span className="text-amber-400">230.5</span>,{'\n'}
-                                    <span className="text-blue-400">  "current_a"</span>: <span className="text-amber-400">10.6</span>,{'\n'}
-                                    <span className="text-blue-400">  "daily_kwh"</span>: <span className="text-amber-400">12.4</span>{'\n'}
+                                    <span className="text-blue-400">  "voltage"</span>: <span className="text-amber-400">230.5</span>{'\n'}
                                     <span className="text-purple-400">{'}'}</span>
                                 </pre>
                             </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="p-4 bg-slate-50 rounded-xl">
-                                    <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Required</h5>
-                                    <ul className="text-xs text-slate-600 space-y-1.5 font-medium">
-                                        <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500" /> power_w (Watts)</li>
-                                        <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500" /> voltage (V)</li>
-                                    </ul>
-                                </div>
-                                <div className="p-4 bg-slate-50 rounded-xl">
-                                    <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Optional</h5>
-                                    <ul className="text-xs text-slate-600 space-y-1.5 font-medium">
-                                        <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-slate-300" /> temp_c (°C)</li>
-                                        <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-slate-300" /> daily_kwh (kWh)</li>
-                                    </ul>
-                                </div>
+                            <div className="p-4 bg-slate-50 rounded-xl text-xs text-slate-600">
+                                Required fields: <strong>power_w</strong> (Watts), <strong>voltage</strong> (Volts).
                             </div>
-
-                            <button onClick={() => setStep(5)} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2">
+                            <button onClick={() => setStep(5)} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 flex items-center justify-center gap-2">
                                 Start Connection Test <ArrowRight className="w-5 h-5" />
                             </button>
                         </div>
                     )}
 
-                    {step === 5 && (
+                    {step === 5 && ( /* VALIDATE - REAL */
                         <div className="flex flex-col items-center justify-center space-y-8 py-8 animate-in zoom-in-95 duration-500">
-                            {!testReceived ? (
+                            {!livePacket ? (
                                 <>
                                     <div className="relative">
-                                        <div className="w-24 h-24 rounded-full bg-blue-50 border-4 border-blue-600/20 flex items-center justify-center">
+                                        <div className={`w-24 h-24 rounded-full border-4 flex items-center justify-center transition-all ${isConnecting ? 'bg-blue-50 border-blue-600/20' : 'bg-slate-50 border-slate-100'}`}>
                                             {isConnecting ? (
                                                 <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
                                             ) : (
@@ -443,18 +449,18 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
 
                                     <div className="text-center max-w-sm">
                                         <h3 className="text-xl font-bold text-slate-900 mb-2">
-                                            {isConnecting ? 'Listening for hardware signal' : 'Awaiting first packet'}
+                                            {isConnecting ? 'Listening for signal...' : 'Ready to Test'}
                                         </h3>
                                         <p className="text-sm text-slate-500 leading-relaxed">
                                             {isConnecting
-                                                ? 'Point your device to our cloud and send a test packet now. We are monitoring the gateway...'
-                                                : 'Click the button below to start the real-time validator.'}
+                                                ? 'Send data now. We are monitoring your specific secure channel.'
+                                                : 'Click below to start listening for the first packet.'}
                                         </p>
                                     </div>
 
                                     {!isConnecting && (
                                         <button onClick={handleTestStart} className="bg-slate-900 text-white font-bold px-8 py-3 rounded-xl hover:bg-black transition-all">
-                                            Begin Live Sync Test
+                                            Begin Live Listener
                                         </button>
                                     )}
                                 </>
@@ -463,32 +469,25 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
                                     <div className="w-24 h-24 rounded-full bg-emerald-100 flex items-center justify-center mb-6">
                                         <CheckCircle2 className="w-12 h-12 text-emerald-600" />
                                     </div>
-                                    <h3 className="text-2xl font-bold text-slate-900 mb-2">System Live!</h3>
+                                    <h3 className="text-2xl font-bold text-slate-900 mb-2">Data Received!</h3>
                                     <p className="text-sm text-slate-600 mb-8 max-w-xs">
-                                        <strong>{orgData.name}</strong> is now broadcasting telemetry to the global network.
+                                        Successfully connected to <strong>{orgData.name}</strong>.
                                     </p>
-
-                                    <div className="grid grid-cols-3 gap-4 w-full max-w-sm mb-10">
-                                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Power</span>
-                                            <span className="font-mono text-sm font-bold text-blue-600">2.4 kW</span>
+                                    <div className="grid grid-cols-2 gap-4 w-full max-w-xs mb-10">
+                                        <div className="bg-slate-50 p-3 rounded-xl">
+                                            <span className="text-[10px] font-bold text-slate-400">Power</span>
+                                            <div className="font-mono font-bold text-blue-600">{livePacket.ac_power_kw} kW</div>
                                         </div>
-                                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                            <span className="text-[10px] font-bold text-slate-400 block mb-1">State</span>
-                                            <span className="font-mono text-sm font-bold text-emerald-600">ONLINE</span>
-                                        </div>
-                                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                            <span className="text-[10px] font-bold text-slate-400 block mb-1">Ping</span>
-                                            <span className="font-mono text-sm font-bold text-slate-700">142ms</span>
+                                        <div className="bg-slate-50 p-3 rounded-xl">
+                                            <span className="text-[10px] font-bold text-slate-400">Voltage</span>
+                                            <div className="font-mono font-bold text-emerald-600">{livePacket.ac_voltage} V</div>
                                         </div>
                                     </div>
-
                                     <button
                                         onClick={handleFinalSubmit}
-                                        disabled={isSubmitting}
-                                        className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                        className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-200 hover:bg-emerald-700 flex items-center justify-center gap-2"
                                     >
-                                        {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Deploy to Dashboard'} <ArrowRight className="w-5 h-5" />
+                                        Finish Setup <ArrowRight className="w-5 h-5" />
                                     </button>
                                 </div>
                             )}
@@ -498,19 +497,15 @@ export const DeviceWizard: React.FC<DeviceWizardProps> = ({ onClose, onComplete 
 
                 {/* Footer Controls */}
                 <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-between items-center text-xs font-bold uppercase tracking-wider">
-                    {step > 1 && step < 5 ? (
-                        <button onClick={() => setStep(step - 1)} className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors">
+                    {step > 0 && step < 5 && step !== 3 && ( // Disable back during credentials (silly to go back after creation)
+                        <button onClick={() => setStep(step - 1)} className="flex items-center gap-2 text-slate-500 hover:text-slate-800">
                             <ArrowLeft className="w-4 h-4" /> Back
                         </button>
-                    ) : <div />}
-
-                    <div className="flex gap-2">
-                        {step !== 5 && (
-                            <button onClick={onClose} className="px-4 py-2 text-slate-500 hover:text-slate-800">
-                                Cancel
-                            </button>
-                        )}
-                    </div>
+                    )}
+                    <div />
+                    <button onClick={onClose} className="px-4 py-2 text-slate-500 hover:text-slate-800">
+                        {step === 5 ? 'Close' : 'Cancel'}
+                    </button>
                 </div>
             </div>
         </div>

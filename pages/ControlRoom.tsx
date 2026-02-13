@@ -4,37 +4,19 @@ import {
     Activity, Zap, Key, Cpu, Shield,
     Terminal, Loader2, Plus, X, Globe, Settings, ExternalLink, RefreshCw, Layers, Building2, Trash2, Archive, Users, CheckCircle2, AlertCircle, Search, LayoutGrid
 } from 'lucide-react';
-import { fetchSchoolLogs, fetchUsers, assignUserToSchool } from '../services/dataService';
+import { fetchSchoolLogs, fetchUsers, assignUserToSchool, archiveSchool } from '../services/dataService';
 import { DeviceWizard } from '../components/DeviceWizard';
 import { useDashboard } from '../context/DashboardContext';
 import { User } from '../types';
 import { useToast } from '../context/ToastContext';
-import { formatTimestampInSchoolTZ } from '../utils/formatters';
-
-// Helper for archiving (Move to dataService in production)
-const archiveSchool = async (id: string) => {
-    const token = sessionStorage.getItem('auth_token');
-    const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api/v1';
-    const res = await fetch(`${API_BASE}/schools/${id}`, {
-        method: 'DELETE',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        }
-    });
-    if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Failed to archive organization');
-    }
-    return res.json();
-};
+import { formatTimestampInSchoolTZ, formatLastUpdated } from '../utils/formatters';
 
 export const ControlRoom: React.FC = () => {
     const auth = useContext(AuthContext);
-    const { data, refresh } = useDashboard();
+    const { data, refresh, isConnected } = useDashboard(); // Added isConnected
     const { showToast } = useToast();
 
-    // Core State
+    // ... (keep state) ...
     const [activeTab, setActiveTab] = useState<'network' | 'users'>('network');
     const [loading, setLoading] = useState(true);
 
@@ -56,7 +38,15 @@ export const ControlRoom: React.FC = () => {
 
     const isAdmin = auth?.user?.role === 'admin';
 
+    // Calculate Latest Payload Timestamp
+    const latestPayloadTime = data?.current_data.reduce((max, curr) => {
+        const t = new Date(curr.timestamp).getTime();
+        return t > max ? t : max;
+    }, 0);
+    const latestPayloadDate = latestPayloadTime ? new Date(latestPayloadTime) : null;
+
     // Initial Load - Network
+    // ... (keep existing useEffects) ...
     useEffect(() => {
         if (auth?.user?.school_id) {
             fetchSchoolLogs(auth.user.school_id).then(data => {
@@ -68,7 +58,6 @@ export const ControlRoom: React.FC = () => {
         }
     }, [auth?.user?.school_id]);
 
-    // Load Users when tab changes
     useEffect(() => {
         if (activeTab === 'users' && users.length === 0) {
             loadUsers();
@@ -89,6 +78,7 @@ export const ControlRoom: React.FC = () => {
     };
 
     // User Management Handlers
+    // ... (keep existing handlers) ...
     const handleUserAssign = async () => {
         if (!selectedUser) return;
 
@@ -144,10 +134,8 @@ export const ControlRoom: React.FC = () => {
 
         setArchivingId(id);
         try {
-            await archiveSchool(id);
+            await archiveSchool(id); // Use service
             showToast('Organization archived successfully', 'success');
-
-            // Refresh dashboard data to update all views including User Management
             await refresh();
         } catch (error) {
             console.error(error);
@@ -181,16 +169,7 @@ export const ControlRoom: React.FC = () => {
                     </p>
                 </div>
                 {isAdmin && (
-                    <div className="flex gap-3">
-                        {/* Moved to User Onboarding Flow
-                        <button
-                            onClick={() => setShowWizard(true)}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-sm shadow-blue-200 transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-wider"
-                        >
-                            <Plus className="w-4 h-4" /> Register New Org
-                        </button>
-                        */}
-                    </div>
+                    <div className="flex gap-3"></div>
                 )}
             </header>
 
@@ -231,11 +210,13 @@ export const ControlRoom: React.FC = () => {
                             </div>
                         </div>
                         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                            <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-lg"><RefreshCw className="w-5 h-5" /></div>
+                            <div className={`p-2.5 rounded-lg transition-colors ${isConnected ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+                                <RefreshCw className={`w-5 h-5 ${isConnected ? '' : 'animate-pulse'}`} />
+                            </div>
                             <div>
                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Last Sync Event</span>
                                 <span className="text-sm font-bold text-slate-800">
-                                    {data?.current_data[0] ? new Date(data.current_data[0].timestamp).toLocaleTimeString() : 'Never'}
+                                    {latestPayloadDate ? formatLastUpdated(latestPayloadDate) : 'Never'}
                                 </span>
                             </div>
                         </div>
@@ -257,16 +238,18 @@ export const ControlRoom: React.FC = () => {
                                     <Terminal className="text-blue-400 w-5 h-5" />
                                     <h3 className="text-sm font-bold text-white uppercase tracking-widest leading-none">Ingestion Event Monitor</h3>
                                 </div>
-                                <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Live Diagnostics</span>
+                                <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border transition-all ${isConnected ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                                    <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                                    <span className={`text-[10px] font-bold uppercase tracking-wider ${isConnected ? 'text-emerald-400' : 'text-red-400'}`}>
+                                        {isConnected ? 'Socket Connected' : 'Disconnected'}
+                                    </span>
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                 <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700/50">
                                     <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Last Payload</span>
                                     <span className="text-xs font-mono text-white">
-                                        {data?.current_data[0] ? new Date(data.current_data[0].timestamp).toLocaleTimeString() : '---'}
+                                        {latestPayloadDate ? latestPayloadDate.toLocaleTimeString() : '---'}
                                     </span>
                                 </div>
                                 <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700/50">

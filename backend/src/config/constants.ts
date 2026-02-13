@@ -52,8 +52,6 @@ export const SIMULATION = {
 // ═══════════ ENVIRONMENTAL FACTORS ═══════════
 export const ENVIRONMENTAL = {
     // Carbon Conversion Factors
-    CARBON_PER_TREE_KG_YEAR: 20,      // kg CO2 absorbed per tree per year
-    CARBON_PER_CAR_KM: 0.12,          // kg CO2 per km driven
 
     // System Projections
     SOLAR_SYSTEM_LIFETIME_YEARS: 20,  // Standard panel warranty period

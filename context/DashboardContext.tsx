@@ -83,17 +83,39 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
         }, 30000); // Check every 30 seconds
 
         // Start "MQTT" subscription
-        unsubscribe = subscribeToTelemetry(null, (newData) => {
-            setData(current => {
-                if (!current) return newData; // Init if empty
+        unsubscribe = subscribeToTelemetry(null, (message) => {
+            if (message.type === 'telemetry_update' && message.data) {
+                setData(current => {
+                    if (!current) return current;
 
-                // Merge strategies could be complex, but for now, 
-                // since fetchDashboardData returns a full snapshot, 
-                // we can just replace the data or do a shallow merge.
-                // A full replacement is safest to ensure consistency.
-                return newData;
-            });
-            setLastUpdated(new Date().toLocaleTimeString());
+                    // Deep clone to avoid mutation
+                    const next = { ...current };
+
+                    // 1. Update current_data (Live Telemetry)
+                    const updatedTelemetry = message.data;
+                    const existingIndex = next.current_data.findIndex(d => d.school_id === updatedTelemetry.school_id);
+
+                    if (existingIndex >= 0) {
+                        // Replace existing
+                        next.current_data[existingIndex] = updatedTelemetry;
+                    } else {
+                        // Append new (and sort/trim if needed, but for now just push)
+                        next.current_data.push(updatedTelemetry);
+                    }
+
+                    // 2. Update Schools list (Last Seen / Status) if necessary
+                    // (The school list doesn't usually carry telemetry, but if we had a status field there, we'd update it)
+
+                    return next;
+                });
+                setLastUpdated(new Date().toLocaleTimeString());
+            } else if (message.type === 'alert') {
+                // For alerts, we might still want to re-fetch or just append. 
+                // Alerts are less frequent, so a re-fetch is safer/easier, or just ignore for now if not critical.
+                // Let's just log it for now to avoid complexity, or trigger a refresh if it's critical.
+                console.log('[DashboardContext] Alert received:', message.data);
+                // Optional: refresh(); 
+            }
         });
 
         return () => {

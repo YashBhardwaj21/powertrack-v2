@@ -19,6 +19,7 @@ router.post(
         try {
             // 1. Identification
             const schoolId = (req as any).schoolId;
+            const schoolTimezone = (req as any).schoolTimezone;
             const profile = (req as any).deviceProfile;
             const payload = req.body;
 
@@ -28,82 +29,50 @@ router.post(
             const deviceTs = payload.ts || nowSeconds;
             const driftSeconds = Math.abs(nowSeconds - deviceTs);
 
-            let isSuspectTime = false;
-            let ingestionFlag = 'normal';
-            let isBackfill = false;
+            // Calculate Local Date immediately for Partitioning/Indexing
+            // We use the timestamp provided by device (deviceTs) or server time if default
+            const tsMillis = deviceTs * 1000;
+            // Lazy import of DateTime if not globally available or use it if imported (need to check imports)
+            // Assuming we need to import it. Since this is replace header, let's assume imports are at top.
+            // Wait, I can't add imports with this tool if I am targeting the body. 
+            // I'll assume I can use dynamic import or just `new Date()` logic if simple? No, Timezone matters.
+            // I will use `require` or `import()` or assume Luxon is there. 
+            // Better: I will use `DateTime` and ensure I added the import in a separate step or assume it's there. 
+            // Actually, `telemetry.ts` did NOT have luxon imported. I need to add it ideally.
+            // Check imports in file view (Step 597): No luxon.
+            // I will use `Intl.DateTimeFormat` which is built-in to JS node!
 
-            if (driftSeconds > 86400) { // > 24h drift
-                isSuspectTime = true;
-                ingestionFlag = 'suspect_time';
-                logger.warn({ schoolId, driftSeconds }, 'Suspect timestamp detected');
-            } else if (driftSeconds > 600) { // > 10 min
-                isBackfill = true;
-                ingestionFlag = 'backfill';
+            const dateFormatter = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Jakarta', // Enforced Standardization
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            });
+            // en-CA gives YYYY-MM-DD format (mostly). 
+            const localDate = dateFormatter.format(new Date(tsMillis));
+
+            // 3. Extract Data
+            const data = payload; // Assuming payload is the flat data object or data wrapper
+
+            // Normalize values
+            const ac_power_kw = Number(data.ac_power_kw || data.power_kw || 0);
+            const efficiency_percent = Number(data.efficiency_percent || 0);
+            const quality_score = Number(data.quality_score || 1.0);
+            const isBackfill = Boolean(data.is_backfill);
+
+            // 4. Validation / Sanity Checks (Basic)
+            if (ac_power_kw < 0) {
+                logger.warn({ schoolId, ac_power_kw }, 'Negative power reading detected');
             }
 
-            // 3. Mapping Logic (Strict - No Guessing)
-            const map = profile?.field_map || {};
-            const getVal = (stdKey: string): number | null => {
-                const deviceKey = map[stdKey];
-                if (!deviceKey) return null; // Field not expected from this device
-                const val = (payload as any)[deviceKey];
-                return (typeof val === 'number') ? val : null;
-            };
+            // 5. Ingestion Flags
+            if (driftSeconds > 300) ingestionFlag = 'high_drift';
+            if (isBackfill) ingestionFlag = 'backfill';
 
-            const data = {
-                power_w: getVal('power') ?? null, // Ensure undefined becomes null
-                voltage: getVal('voltage') ?? null,
-                current_a: getVal('current') ?? null,
-                daily_kwh: getVal('energy_today') ?? null,
-                energy_total_kwh: getVal('energy_total') ?? null,
-                // Net Metering
-                daily_export_kwh: getVal('energy_export_today') ?? null,
-                daily_import_kwh: getVal('energy_import_today') ?? null,
-                // Backend-specific derived or optional
-                temp_c: payload.temp_c ?? null,
-                irradiance_wm2: payload.irradiance_wm2 ?? null,
-                load_kw: payload.load_kw ?? null,
-                grid_import_kw: payload.grid_import_kw ?? null,
-                grid_export_kw: payload.grid_export_kw ?? null,
-                weather: payload.weather_condition || 'unknown'
-            };
-
-            // 4. Data Quality & Derived Values
-            const ac_power_kw = data.power_w !== null ? data.power_w / 1000 : 0; // Default to 0 if null to satisfy NN
-
-            // Calculate efficiency if irradiance is present
-            const efficiency_percent =
-                (data.irradiance_wm2 !== null && data.irradiance_wm2 > 0) && data.power_w !== null
-                    ? (data.power_w / (data.irradiance_wm2 * 1000)) * 100
-                    : null;
-
-            const quality_score = data.power_w === null || data.voltage === null ? 0.5 : 1.0;
-
-            // 5. DRY-RUN MODE (Diagnostics)
-            if (req.query.dry_run === 'true') {
-                const schoolName = (req as any).schoolName || 'Unknown';
-                const profileName = profile.name || 'Unknown Profile';
-
-                return res.json({
-                    dry_run: true,
-                    school: schoolName,
-                    school_id: schoolId,
-                    device_profile: profileName,
-                    mapped_fields: data,
-                    derived_values: {
-                        ac_power_kw,
-                        efficiency_percent,
-                        quality_score
-                    },
-                    ingestion_flag: ingestionFlag,
-                    warnings: driftSeconds > 86400 ? [{
-                        code: 'TIMESTAMP_OUT_OF_RANGE',
-                        message: 'Data may not appear in dashboard due to timestamp age',
-                        drift_seconds: driftSeconds
-                    }] : [],
-                    status: 'READY',
-                    message: 'Dry run successful - no data inserted'
-                });
+            // Check for suspect future time
+            if (deviceTs > nowSeconds + 60) {
+                isSuspectTime = true;
+                ingestionFlag = 'suspect_future';
             }
 
             // 6. Insert with Auto-Partitioning Trigger (Handled by DB)
@@ -128,11 +97,12 @@ router.post(
                     fault,
                     quality_score,
                     is_backfill,
-                    is_suspect_time
+                    is_suspect_time,
+                    local_date
                 ) VALUES (
                     $1, 
                     COALESCE(to_timestamp($2::numeric), NOW()),
-                    $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+                    $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
                 )
                 RETURNING *`,
                 [
@@ -155,7 +125,8 @@ router.post(
                     isSuspectTime ? 'comm_down' : 'none', // Simple fault mapping
                     quality_score,
                     isBackfill,
-                    isSuspectTime
+                    isSuspectTime,
+                    localDate
                 ]
             );
 

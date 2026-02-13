@@ -332,6 +332,7 @@ export const PublicLobby: React.FC = () => {
                             <PublicEnergyChart
                                 data={historyData}
                                 loading={graphLoading}
+                                timezone="Asia/Jakarta"
                             />
 
                             {/* Network Coverage Map - Below Graph */}

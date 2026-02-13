@@ -4,6 +4,7 @@ import { Telemetry, HistoricalData, School } from '../types';
 import { DailyEnergyChart } from './charts/DailyEnergyChart';
 import { DailyHistoryChart } from './charts/DailyHistoryChart';
 import { formatTimeInSchoolTZ, formatDateInSchoolTZ } from '../utils/timezone';
+import { fetchHourlyData, fetchAnalyticsRange } from '../services/dataService';
 
 interface PerformanceChartsProps {
     currentData: Telemetry[];
@@ -44,15 +45,8 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
         setHourlyLoading(true);
 
         try {
-            const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api/v1';
-            const response = await fetch(`${API_BASE}/dashboard/hourly?date=${dateStr}`, {
-                headers: { 'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}` }
-            });
-
-            if (response.ok) {
-                const result = await response.json();
-                setHourlyData(result);
-            }
+            const result = await fetchHourlyData(dateStr);
+            setHourlyData(result);
         } catch (err) {
             console.error(err);
         } finally {
@@ -76,18 +70,8 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
                 case '1Y': start.setFullYear(end.getFullYear() - 1); break;
             }
 
-            const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api/v1';
-            const response = await fetch(`${API_BASE}/dashboard/analytics?start=${start.toISOString()}&end=${end.toISOString()}`, {
-                headers: { 'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}` }
-            });
-
-            if (response.ok) {
-                const result = await response.json();
-                setStatsData(result.daily_series);
-            } else {
-                console.error("Failed to fetch analytics");
-                setStatsData([]);
-            }
+            const result = await fetchAnalyticsRange(start.toISOString(), end.toISOString());
+            setStatsData(result.daily_series);
         } catch (err) {
             console.error(err);
             setStatsData([]);

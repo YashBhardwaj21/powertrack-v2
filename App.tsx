@@ -99,9 +99,9 @@ const App: React.FC = () => {
             const healthUrl = API_BASE.replace('/api/v1', '/health');
             const response = await fetch(healthUrl);
             if (response.ok) {
-                return 'Backend is running but API returned an error. Check database connection logs.';
+                return 'Backend is reachable.';
             }
-            return 'Backend is running but /health returned an error.';
+            return 'Backend is running but /health returned an error. Check database connection logs.';
         } catch (error) {
             return 'Backend server is NOT REACHABLE. Please ensure you ran "npm run dev" in the backend folder and it started successfully on port 3001.';
         }

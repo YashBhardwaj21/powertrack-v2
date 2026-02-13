@@ -62,7 +62,8 @@ router.get('/summary', authenticateToken, validateUUID('school_id'), async (req:
         const unwrap = <T>(result: PromiseSettledResult<T>, fallback: T): T =>
             result.status === 'fulfilled' ? result.value : fallback;
 
-        const schools = unwrap(schoolsResult, []);
+        const allSchools = unwrap(schoolsResult, []);
+        const schools = user.role === 'admin' ? allSchools : allSchools.filter((s: any) => s.id === user.school_id);
         const current_data = unwrap(telemetryResult, []);
         const alerts = unwrap(alertsResult, []);
         const hourly_historical = unwrap(hourlyHistoryResult, []);
@@ -78,13 +79,13 @@ router.get('/summary', authenticateToken, validateUUID('school_id'), async (req:
         const defaultModelMetrics = { version: '1.0.0', last_trained: new Date().toISOString(), rmse: 0, mape: 0, residuals_trend: [] as number[], anomaly_detection: { precision: 0, recall: 0, f1_score: 0, total_anomalies_detected: 0 } };
 
         let community_stats = defaultCommunityStats;
-        let financial_stats = defaultFinancialStats; // Type 'any' temporarily if interface doesn't match perfectly or fix interface usage
+        let financial_stats = defaultFinancialStats;
         let model_metrics = defaultModelMetrics;
 
         try {
             financial_stats = await dashboardService.getFinancialStats(
                 schoolId, schools, current_data, TARIFF, EXPORT_TARIFF, CARBON_FACTOR, DEFAULT_IRR,
-                schools.find(s => s.id === schoolId)?.timezone || 'UTC'
+                schools.find((s: any) => s.id === schoolId)?.timezone || 'UTC'
             ) as any;
         } catch (calcError) {
             console.error('Error calculating derived stats:', calcError);
@@ -100,7 +101,7 @@ router.get('/summary', authenticateToken, validateUUID('school_id'), async (req:
             metadata: {
                 electricity_rate_idr: TARIFF,
                 carbon_intensity_kg_per_kwh: CARBON_FACTOR,
-                school_timezone: schools.find(s => s.id === schoolId)?.timezone || 'UTC',
+                school_timezone: schools.find((s: any) => s.id === schoolId)?.timezone || 'UTC',
             },
             hourly_historical,
             historical_data: daily_historical, // Back-compat
@@ -242,14 +243,20 @@ router.get('/analytics', authenticateToken, async (req: Request, res: Response) 
         const historyResult = await query(
             `WITH days AS (SELECT generate_series($1::timestamp, $2::timestamp, '1 day'::interval) as date),
             per_school_daily AS (
-                SELECT DATE(t.timestamp AT TIME ZONE s.timezone) as date_key, MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh) as daily_energy, MAX(t.ac_power_kw) as peak_power
+                SELECT 
+                    DATE(t.timestamp AT TIME ZONE s.timezone) as date_key,
+                    t.school_id,
+                    CASE WHEN COUNT(*) > 1 THEN MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh) ELSE MAX(t.daily_energy_kwh) END as daily_energy,
+                    MAX(t.ac_power_kw) as peak_power
                 FROM public.telemetry t
                 JOIN public.schools s ON t.school_id = s.id
                 WHERE s.timezone IS NOT NULL AND t.timestamp >= $1 AND t.timestamp <= $2 ${schoolId ? 'AND t.school_id = $3' : ''}
-                GROUP BY date_key
+                GROUP BY date_key, t.school_id
             )
-            SELECT d.date, COALESCE(p.daily_energy, 0) as total_energy_kwh, COALESCE(p.peak_power, 0) as peak_power_kw
-            FROM days d LEFT JOIN per_school_daily p ON DATE(d.date) = p.date_key ORDER BY d.date ASC`,
+            SELECT d.date, COALESCE(SUM(p.daily_energy), 0) as total_energy_kwh, COALESCE(MAX(p.peak_power), 0) as peak_power_kw
+            FROM days d LEFT JOIN per_school_daily p ON DATE(d.date) = p.date_key
+            GROUP BY d.date
+            ORDER BY d.date ASC`,
             schoolId ? [start, end, schoolId] : [start, end]
         );
 

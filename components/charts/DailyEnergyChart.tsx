@@ -5,6 +5,11 @@ import { formatEnergy } from '../../utils/formatters';
 import { EmptyState } from '../ui/EmptyState';
 import { BarChart3 } from 'lucide-react';
 
+const tz = (d: Date, timezone: string) => ({
+    dateKey: d.toLocaleDateString('en-CA', { timeZone: timezone }),
+    hour: parseInt(d.toLocaleTimeString('en-GB', { timeZone: timezone, hour12: false, hour: '2-digit', minute: '2-digit' }).split(':')[0], 10)
+});
+
 interface DailyEnergyChartProps {
     // Data shape: { hour: string (ISO), avg_power: number, energy: number ... }
     data: Array<{ hour: string; avg_power: number; energy: number }>;
@@ -12,9 +17,8 @@ interface DailyEnergyChartProps {
 }
 
 export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data, timezone = 'UTC' }) => {
-    // 1. Data Processing: Smart Date Selection
+    // 1. Data Processing: Group by date and hour in school timezone so "Today" matches backend
     const { chartCategories, chartValues, displayedDate } = useMemo(() => {
-        // Initialize 24-hour buckets
         const hours = Array.from({ length: 24 }, (_, i) => i);
         const categories = hours.map(h => `${h.toString().padStart(2, '0')}:00`);
 
@@ -26,39 +30,31 @@ export const DailyEnergyChart: React.FC<DailyEnergyChartProps> = ({ data, timezo
             };
         }
 
-        // Group data by Date String (YYYY-MM-DD local)
         const dataByDate = new Map<string, typeof data>();
         data.forEach(p => {
             const pDate = new Date(p.hour);
-            const dateKey = pDate.toLocaleDateString();
+            const { dateKey } = tz(pDate, timezone);
             if (!dataByDate.has(dateKey)) dataByDate.set(dateKey, []);
             dataByDate.get(dateKey)?.push(p);
         });
 
-        // Determine target date
         const now = new Date();
-        const todayKey = now.toLocaleDateString();
-        const yesterday = new Date(now);
-        yesterday.setDate(now.getDate() - 1);
-        const yesterdayKey = yesterday.toLocaleDateString();
-
-        const targetKey = todayKey;
+        const { dateKey: todayKey } = tz(now, timezone);
         const targetData = dataByDate.get(todayKey) || [];
-        // Always show today, even if empty (midnight scenario)
 
         const values = new Array(24).fill(0);
         const targetDateObj = new Date(targetData.length > 0 ? targetData[0].hour : now);
 
         targetData.forEach(p => {
             const pDate = new Date(p.hour);
-            const hour = pDate.getHours();
+            const { hour } = tz(pDate, timezone);
             if (hour >= 0 && hour < 24) {
                 values[hour] += Number(p.energy) || 0;
             }
         });
 
         return { chartCategories: categories, chartValues: values, displayedDate: targetDateObj };
-    }, [data]);
+    }, [data, timezone]);
 
     // Check if chart is completely empty (all zeros) but we return full grid anyway
     const isEmpty = chartValues.every(v => v === 0);

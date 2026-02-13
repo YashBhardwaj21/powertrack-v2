@@ -1,7 +1,9 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { config } from '../config/index.js';
 import { JWTPayload } from '../types/index.js';
+import { query } from '../db/index.js';
 
 // Extend Express Request type to include user
 declare global {
@@ -114,9 +116,6 @@ export const invalidateUserCache = (userId: string) => {
     console.log(`[Auth] Invalidated cache for user ${userId}`);
 };
 
-import { query } from '../db/index.js';
-import crypto from 'crypto';
-
 export const authenticateApiKey = async (req: Request, res: Response, next: NextFunction) => {
     let apiKey = req.headers['x-api-key'] as string;
 
@@ -170,6 +169,7 @@ export const authenticateApiKey = async (req: Request, res: Response, next: Next
             `SELECT 
                 s.id, 
                 s.name,
+                s.timezone,
                 s.api_key_hash, 
                 s.device_profile_id, 
                 s.deleted_at,
@@ -244,6 +244,7 @@ export const authenticateApiKey = async (req: Request, res: Response, next: Next
         // ✅ ALL GATES PASSED - Attach to Request
         req.schoolId = school.id;
         (req as any).schoolName = school.name;
+        (req as any).schoolTimezone = school.timezone || 'Asia/Jakarta';
         (req as any).deviceProfile = {
             id: school.device_profile_id,
             name: school.profile_name,

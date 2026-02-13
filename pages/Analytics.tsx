@@ -50,6 +50,7 @@ export const Analytics: React.FC = () => {
                     historicalData={data.historical_data}
                     hourlyHistorical={data.hourly_historical}
                     schools={data.schools}
+                    timezone={data.metadata?.school_timezone || data.schools[0]?.timezone || 'Asia/Jakarta'}
                 />
             </section>
 
@@ -67,6 +68,7 @@ export const Analytics: React.FC = () => {
                     hourlyHistorical={data.hourly_historical}
                     dailyHistorical={data.daily_historical}
                     schools={data.schools}
+                    timezone={data.metadata?.school_timezone || data.schools[0]?.timezone || 'Asia/Jakarta'}
                 />
             </section>
 

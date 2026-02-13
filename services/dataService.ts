@@ -203,53 +203,19 @@ export const archiveSchool = async (schoolId: string) => {
     return await response.json();
 };
 
-// WebSocket connection for real-time updates
+// WebSocket connection for real-time updates (single connection path with reconnect)
 let ws: WebSocket | null = null;
 
 export const subscribeToTelemetry = (
     schoolId: string | null,
     onData: (message: any) => void
 ) => {
-    // Close existing connection if any
-    if (ws) {
-        ws.close();
-    }
-
-    // Create WebSocket connection
-    ws = new WebSocket(WS_URL);
-
-    ws.onopen = () => {
-        console.log('✅ WebSocket connected');
-
-        // Subscribe to specific school or all schools
-        ws?.send(JSON.stringify({
-            type: 'subscribe',
-            schoolId: schoolId || 'all',
-        }));
-    };
-
-    ws.onmessage = async (event) => {
-        try {
-            const message = JSON.parse(event.data);
-            // Pass the raw message to the context for merging
-            onData(message);
-        } catch (error) {
-            console.error('WebSocket message error:', error);
-        }
-    };
-
-    ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-    };
-
-    // State for reconnection backoff
     let retryCount = 0;
     const maxRetries = 10;
     const baseDelay = 1000;
-    let reconnectTimeout: any;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
 
     const connect = () => {
-        // Close existing connection if any
         if (ws) {
             ws.close();
         }
@@ -257,17 +223,14 @@ export const subscribeToTelemetry = (
         ws = new WebSocket(WS_URL);
 
         ws.onopen = () => {
-            console.log('✅ WebSocket connected');
-            retryCount = 0; // Reset on success
-
-            // Subscribe to specific school or all schools
+            retryCount = 0;
             ws?.send(JSON.stringify({
                 type: 'subscribe',
                 schoolId: schoolId || 'all',
             }));
         };
 
-        ws.onmessage = async (event) => {
+        ws.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
                 onData(message);
@@ -277,40 +240,30 @@ export const subscribeToTelemetry = (
         };
 
         ws.onclose = () => {
-            console.log(`❌ WebSocket disconnected. Retry ${retryCount}/${maxRetries}`);
-
             if (retryCount < maxRetries) {
-                // Exponential Backoff with Jitter
-                // delay = base * 2^retries + random(0-500ms)
                 const backoff = baseDelay * Math.pow(2, retryCount);
                 const jitter = Math.random() * 500;
-                const delay = Math.min(backoff + jitter, 30000); // Cap at 30s
-
+                const delay = Math.min(backoff + jitter, 30000);
                 reconnectTimeout = setTimeout(() => {
                     retryCount++;
                     connect();
                 }, delay);
-            } else {
-                console.error('WebSocket max retries reached. Giving up.');
             }
         };
 
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            // Verify if closing triggers onclose, usually yes.
+        ws.onerror = () => {
+            // onclose will run after onerror; no need to log twice
         };
     };
 
-    // Initial connect
     connect();
 
-    // Return cleanup function
     return () => {
         if (ws) {
             ws.close();
             ws = null;
         }
-        if (reconnectTimeout) {
+        if (reconnectTimeout !== undefined) {
             clearTimeout(reconnectTimeout);
         }
     };

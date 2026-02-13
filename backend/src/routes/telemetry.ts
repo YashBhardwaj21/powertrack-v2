@@ -1,7 +1,8 @@
 import express, { Request, Response } from 'express';
 import { query } from '../db/index.js';
 import { validate } from '../middleware/validation.js';
-import { authenticateApiKey } from '../middleware/auth.js';
+import { authenticateApiKey, authenticateToken } from '../middleware/auth.js';
+import { validateUUID } from '../middleware/validateUUID.js';
 import { broadcastTelemetryUpdate } from '../websocket/index.js';
 import { telemetryIngestSchema } from '../validation/schemas.js';
 import { logger } from '../utils/logger.js';
@@ -22,6 +23,8 @@ router.post(
             const schoolTimezone = (req as any).schoolTimezone;
             const profile = (req as any).deviceProfile;
             const payload = req.body;
+            let ingestionFlag = 'ok';
+            let isSuspectTime = false;
 
             // 2. Clock Drift Handling (Strict & Explicit)
             const nowSeconds = Math.floor(Date.now() / 1000);
@@ -42,20 +45,27 @@ router.post(
             // Check imports in file view (Step 597): No luxon.
             // I will use `Intl.DateTimeFormat` which is built-in to JS node!
 
+            const tz = schoolTimezone || 'Asia/Jakarta';
             const dateFormatter = new Intl.DateTimeFormat('en-CA', {
-                timeZone: 'Asia/Jakarta', // Enforced Standardization
+                timeZone: tz,
                 year: 'numeric',
                 month: '2-digit',
                 day: '2-digit'
             });
-            // en-CA gives YYYY-MM-DD format (mostly). 
+            // en-CA gives YYYY-MM-DD format (mostly).
             const localDate = dateFormatter.format(new Date(tsMillis));
 
-            // 3. Extract Data
-            const data = payload; // Assuming payload is the flat data object or data wrapper
+            // 3. Extract Data (accept schema names power_w/total_kwh and alternate names)
+            const data = payload;
 
-            // Normalize values
-            const ac_power_kw = Number(data.ac_power_kw || data.power_kw || 0);
+            // Normalize power: accept ac_power_kw (kW), power_kw (kW), or power_w (W per schema/README)
+            const rawPowerKw = data.ac_power_kw ?? data.power_kw;
+            const rawPowerW = data.power_w;
+            const ac_power_kw = Number(
+                rawPowerKw != null && Number.isFinite(rawPowerKw) ? rawPowerKw
+                    : rawPowerW != null && Number.isFinite(rawPowerW) ? rawPowerW / 1000
+                    : 0
+            );
             const efficiency_percent = Number(data.efficiency_percent || 0);
             const quality_score = Number(data.quality_score || 1.0);
             const isBackfill = Boolean(data.is_backfill);
@@ -112,9 +122,9 @@ router.post(
                     data.voltage || 0,
                     data.current_a || 0,
                     data.daily_kwh || 0,
-                    data.energy_total_kwh || 0,
-                    data.daily_export_kwh || 0,
-                    data.daily_import_kwh || 0,
+                    data.energy_total_kwh ?? data.total_kwh ?? 0,
+                    data.daily_export_kwh ?? data.energy_export_today ?? 0,
+                    data.daily_import_kwh ?? data.energy_import_today ?? 0,
                     data.temp_c,
                     data.irradiance_wm2,
                     efficiency_percent,
@@ -181,12 +191,34 @@ router.post(
 );
 
 /* =========================================================
-   GET HELPERS
+   GET HELPERS (Authenticated; scoped by role)
+   Define /all/latest before /:schoolId/latest so "all" is not parsed as schoolId.
 ========================================================= */
-router.get('/:schoolId/latest', async (req: Request, res: Response) => {
+router.get('/all/latest', authenticateToken, async (req: Request, res: Response) => {
     try {
-        const { schoolId } = req.params;
+        const user = (req as any).user;
+        if (user.role !== 'admin') {
+            return res.status(403).json({ error: 'Admin only', code: 'FORBIDDEN' });
+        }
+        const result = await query(
+            `SELECT DISTINCT ON (school_id) *
+             FROM public.telemetry
+             ORDER BY school_id, timestamp DESC`
+        );
+        res.json(result.rows);
+    } catch (error) {
+        logger.error({ err: error }, 'Get all telemetry error');
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
+router.get('/:schoolId/latest', authenticateToken, validateUUID('schoolId'), async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const { schoolId } = req.params;
+        if (user.role !== 'admin' && user.school_id !== schoolId) {
+            return res.status(403).json({ error: 'Access denied to this school', code: 'FORBIDDEN' });
+        }
         const result = await query(
             `SELECT *
              FROM public.telemetry
@@ -195,11 +227,9 @@ router.get('/:schoolId/latest', async (req: Request, res: Response) => {
              LIMIT 1`,
             [schoolId]
         );
-
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'No telemetry data found' });
         }
-
         res.json(result.rows[0]);
     } catch (error) {
         logger.error({ err: error, schoolId: req.params.schoolId }, 'Get latest telemetry error');
@@ -207,13 +237,15 @@ router.get('/:schoolId/latest', async (req: Request, res: Response) => {
     }
 });
 
-
-router.get('/:schoolId/history', async (req: Request, res: Response) => {
+router.get('/:schoolId/history', authenticateToken, validateUUID('schoolId'), async (req: Request, res: Response) => {
     try {
+        const user = (req as any).user;
         const { schoolId } = req.params;
+        if (user.role !== 'admin' && user.school_id !== schoolId) {
+            return res.status(403).json({ error: 'Access denied to this school', code: 'FORBIDDEN' });
+        }
         const limit = parseInt(req.query.limit as string) || 50;
         const offset = parseInt(req.query.offset as string) || 0;
-
         const result = await query(
             `SELECT *
              FROM public.telemetry
@@ -222,25 +254,9 @@ router.get('/:schoolId/history', async (req: Request, res: Response) => {
              LIMIT $2 OFFSET $3`,
             [schoolId, limit, offset]
         );
-
         res.json(result.rows);
     } catch (error) {
         logger.error({ err: error, schoolId: req.params.schoolId }, 'Get telemetry history error');
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-router.get('/all/latest', async (_req: Request, res: Response) => {
-    try {
-        const result = await query(
-            `SELECT DISTINCT ON (school_id) *
-             FROM public.telemetry
-             ORDER BY school_id, timestamp DESC`
-        );
-
-        res.json(result.rows);
-    } catch (error) {
-        logger.error({ err: error }, 'Get all telemetry error');
         res.status(500).json({ error: 'Internal server error' });
     }
 });

@@ -55,7 +55,6 @@ export interface Telemetry {
   ac_current: number;
   total_energy_kwh: number;
   daily_energy_kwh: number;
-  daily_energy_kwh: number;
   daily_import_kwh: number;
   daily_export_kwh: number;
   daily_load_kwh: number;

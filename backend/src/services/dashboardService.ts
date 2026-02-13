@@ -166,51 +166,36 @@ export const dashboardService = {
     },
 
     async getDailyHistory(schoolId: string | undefined, _legacyTimezone?: string) {
-        // Dynamic timezone join
+        // Use raw telemetry only (no telemetry_daily dependency). Daily energy: when multiple
+        // rows per day use MAX-MIN delta; when single row use MAX so we show a value.
         const result = await query(
             `WITH days AS (
-                SELECT 
-                    s.id as school_id, 
-                    generate_series(
-                        (DATE(NOW() AT TIME ZONE s.timezone) - INTERVAL '29 days')::timestamp, 
-                        DATE(NOW() AT TIME ZONE s.timezone)::timestamp,
-                        '1 day'::interval
-                    ) as date,
-                    s.timezone
-                FROM public.schools s
-                WHERE ($1::uuid IS NULL OR s.id = $1::uuid)
+                SELECT (generate_series(
+                    (DATE(NOW() AT TIME ZONE 'Asia/Jakarta') - INTERVAL '29 days')::date,
+                    (DATE(NOW() AT TIME ZONE 'Asia/Jakarta'))::date,
+                    '1 day'::interval
+                ))::date as date
             ),
-            -- 1. Aggregated History (Fast) - Exclude today to prevent duplication
-            aggregated_daily AS (
-                SELECT school_id, day, daily_energy_kwh
-                FROM public.telemetry_daily
-                WHERE day >= (CURRENT_DATE - INTERVAL '30 days')
-                  AND day < CURRENT_DATE
-            ),
-            -- 2. Live Today (Real-time)
-            live_today AS (
+            per_school_daily AS (
                 SELECT 
-                    t.school_id, 
-                    DATE(t.timestamp AT TIME ZONE s.timezone) as day, 
-                    MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh) as daily_energy_kwh
+                    DATE(t.timestamp AT TIME ZONE s.timezone) as day,
+                    t.school_id,
+                    CASE 
+                        WHEN COUNT(*) > 1 THEN MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh)
+                        ELSE MAX(t.daily_energy_kwh)
+                    END as daily_energy_kwh
                 FROM public.telemetry t
                 JOIN public.schools s ON t.school_id = s.id
-                WHERE t.timestamp >= NOW() - INTERVAL '24 hours' -- Optimization: Limit scan
+                WHERE s.timezone IS NOT NULL
+                  AND t.timestamp >= NOW() - INTERVAL '30 days'
+                  AND ($1::uuid IS NULL OR t.school_id = $1::uuid)
                 GROUP BY 1, 2
-            ),
-            -- 3. Union Sources
-            combined_daily AS (
-                SELECT school_id, day, daily_energy_kwh FROM aggregated_daily
-                UNION ALL
-                SELECT school_id, day, daily_energy_kwh FROM live_today
             )
             SELECT 
                 d.date,
-                COALESCE(SUM(cd.daily_energy_kwh), 0) as total_energy_kwh
+                COALESCE(SUM(p.daily_energy_kwh), 0) as total_energy_kwh
             FROM days d
-            LEFT JOIN combined_daily cd ON 
-                cd.school_id = d.school_id AND 
-                cd.day = DATE(d.date)
+            LEFT JOIN per_school_daily p ON DATE(d.date) = p.day
             GROUP BY d.date
             ORDER BY d.date ASC`,
             [schoolId || null]
@@ -383,41 +368,24 @@ export const dashboardService = {
     },
 
     async getLeaderboardStats() {
-        // Refactored to use dynamic timestamps for daily yields
+        // Use latest telemetry row per school (same source as public-metrics chart) so leaderboard
+        // shows values whenever telemetry exists; avoids empty tables when only power is reported.
         const result = await query(
-            `WITH daily_yields AS (
-                SELECT t.school_id, 
-                       DATE(t.timestamp AT TIME ZONE s.timezone) as production_date, 
-                       MAX(t.daily_energy_kwh) as day_total
-                FROM public.telemetry t
-                JOIN public.schools s ON t.school_id = s.id
-                GROUP BY t.school_id, 3
-            ),
-            school_aggregates AS (
-                SELECT school_id, SUM(day_total) as calculated_total_yield
-                FROM daily_yields
-                GROUP BY school_id
-            ),
-            today_metrics AS (
-                SELECT 
-                    t.school_id, 
-                    MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh) as daily_energy_kwh
-                FROM public.telemetry t
-                JOIN public.schools s ON t.school_id = s.id
-                WHERE t.timestamp >= date_trunc('day', NOW() AT TIME ZONE s.timezone)
-                GROUP BY t.school_id
+            `WITH latest_telemetry AS (
+                SELECT DISTINCT ON (school_id) school_id, total_energy_kwh, daily_energy_kwh
+                FROM public.telemetry
+                ORDER BY school_id, timestamp DESC
             )
             SELECT
                 s.id AS school_id, s.name AS school_name, s.district, s.total_capacity_kwp,
-                COALESCE(agg.calculated_total_yield, 0) AS total_energy_kwh,
-                COALESCE(tm.daily_energy_kwh, 0) AS today_energy_kwh,
-                COALESCE(agg.calculated_total_yield * 0.85, 0) AS co2_reduced_kg,
-                RANK() OVER(ORDER BY COALESCE(agg.calculated_total_yield, 0) DESC) AS rank
-             FROM public.schools s
-             LEFT JOIN school_aggregates agg ON s.id = agg.school_id
-             LEFT JOIN today_metrics tm ON s.id = tm.school_id
-             WHERE s.deleted_at IS NULL
-             ORDER BY total_energy_kwh DESC`
+                COALESCE(lt.total_energy_kwh, 0) AS total_energy_kwh,
+                COALESCE(lt.daily_energy_kwh, 0) AS today_energy_kwh,
+                COALESCE(lt.total_energy_kwh * 0.85, 0) AS co2_reduced_kg,
+                RANK() OVER (ORDER BY COALESCE(lt.total_energy_kwh, 0) DESC) AS rank
+            FROM public.schools s
+            LEFT JOIN latest_telemetry lt ON s.id = lt.school_id
+            WHERE s.deleted_at IS NULL
+            ORDER BY total_energy_kwh DESC`
         );
         return result.rows;
     }

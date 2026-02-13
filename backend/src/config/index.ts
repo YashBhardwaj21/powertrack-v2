@@ -19,7 +19,7 @@ export const config = {
     supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
     databaseUrl: process.env.DATABASE_URL || '',
 
-    // JWT
+    // JWT (default secret only in development; production must set JWT_SECRET)
     jwtSecret: process.env.JWT_SECRET || 'default-secret-change-in-production',
     jwtExpiry: process.env.JWT_EXPIRY || '24h',
 
@@ -31,10 +31,18 @@ export const config = {
     wsPort: parseInt(process.env.WS_PORT || '3002', 10),
 };
 
-// Validate required config
-const requiredEnvVars = ['SUPABASE_URL', 'DATABASE_URL', 'JWT_SECRET'];
+// Validate required config (DATABASE_URL and JWT_SECRET are required for runtime; SUPABASE_* optional if using direct pg)
+const requiredEnvVars = ['DATABASE_URL', 'JWT_SECRET'];
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingEnvVars.length > 0 && config.nodeEnv !== 'development') {
     console.warn(`Warning: Missing environment variables: ${missingEnvVars.join(', ')}`);
+}
+
+if (config.nodeEnv === 'production') {
+    const secret = process.env.JWT_SECRET;
+    if (!secret || secret === 'default-secret-change-in-production') {
+        console.error('FATAL: JWT_SECRET must be set to a strong value in production.');
+        process.exit(1);
+    }
 }

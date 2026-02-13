@@ -27,33 +27,41 @@ export const GridAnalytics: React.FC<GridAnalyticsProps> = ({ currentData, histo
     const sourceData = hourlyHistorical || [];
     const hasHistoricalProfile = sourceData.length > 0;
 
-    const curveData = sourceData.map(h => {
-        // Now using REAL data from backend (no longer hardcoded 0s)
-        const solarVal = Number(h.avg_power) || 0;
-        const loadVal = Number(h.avg_load) || 0;
-
-        // Grid Logic:
-        // Use avg_import if available, or fall back to calculation
-        // But for visual stacking (Solar vs Load), Grid is usually the gap.
-        // Let's visualize: 
-        // 1. Load (Base consumption)
-        // 2. Solar (Generation)
-        // 3. Grid Interaction (The delta)
-
-        // If we strictly follow the AreaChart keys:
-        // Load: The consumption curve
-        // Solar: The generation curve
-        // Grid: The difference (Import/Export)
-
-        // The previous logic was: Grid = |Solar - Load|
-        // This visualizes the "Activity" or "Stress" on the grid connection.
-        // Let's keep that visual for now as it's intuitive for "Grid Interaction".
-
+    // Build a full 24-hour map (00:00 to 23:00) in school timezone, filtering to today only
+    const todayInTz = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
+    
+    const hourMap = new Map<string, { Solar: number; Load: number; Grid: number }>();
+    
+    // Initialize all 24 hours with zeros
+    for (let h = 0; h < 24; h++) {
+        const hourStr = `${h.toString().padStart(2, '0')}:00`;
+        hourMap.set(hourStr, { Solar: 0, Load: 0, Grid: 0 });
+    }
+    
+    // Fill in actual data, filtering to today in school timezone
+    sourceData.forEach(h => {
+        const hourDate = new Date(h.hour);
+        const hourDateStr = hourDate.toLocaleDateString('en-CA', { timeZone: timezone });
+        
+        // Only include data from today in school timezone
+        if (hourDateStr === todayInTz) {
+            const solarVal = Number(h.avg_power) || 0;
+            const loadVal = Number(h.avg_load) || 0;
+            const timeStr = formatTimeInSchoolTZ(h.hour, timezone);
+            hourMap.set(timeStr, {
+                Solar: Number(solarVal.toFixed(1)),
+                Load: Number(loadVal.toFixed(1)),
+                Grid: Number(Math.abs(solarVal - loadVal).toFixed(1))
+            });
+        }
+    });
+    
+    // Build curve data in correct order (00:00 to 23:00)
+    const curveData = Array.from({ length: 24 }, (_, i) => {
+        const hourStr = `${i.toString().padStart(2, '0')}:00`;
         return {
-            time: formatTimeInSchoolTZ(h.hour, timezone),
-            Solar: Number(solarVal.toFixed(1)),
-            Load: Number(loadVal.toFixed(1)),
-            Grid: Number(Math.abs(solarVal - loadVal).toFixed(1))
+            time: hourStr,
+            ...hourMap.get(hourStr) || { Solar: 0, Load: 0, Grid: 0 }
         };
     });
 

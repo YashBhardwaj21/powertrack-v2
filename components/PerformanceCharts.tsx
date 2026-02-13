@@ -160,7 +160,15 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
                                 }
                             </h2>
                             <p className="text-slate-500 text-sm">
-                                {selectedDate ? 'Hourly output for selected date' : 'Energy generated since midnight'}
+                                {selectedDate ? 'Hourly output for selected date' : (
+                                    <>
+                                        Energy generated since midnight: <span className="font-bold text-slate-900">
+                                            {hourlyData && hourlyData.length > 0
+                                                ? `${hourlyData.reduce((sum, h) => sum + (Number(h.energy) || 0), 0).toFixed(2)} kWh`
+                                                : '0.00 kWh'}
+                                        </span>
+                                    </>
+                                )}
                             </p>
                         </div>
                         {selectedDate && (
@@ -179,7 +187,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
                             </div>
                         )}
                         {hourlyData && hourlyData.length > 0 ? (
-                            <DailyEnergyChart data={hourlyData} />
+                            <DailyEnergyChart data={hourlyData} timezone={timezone} />
                         ) : (
                             <div className="h-64 flex items-center justify-center text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">
                                 No data available for this period

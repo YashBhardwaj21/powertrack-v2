@@ -99,6 +99,7 @@ router.post(
 ========================================================= */
 router.post(
     '/register',
+    authLimiter,
     validate(registerSchema),
     async (req: Request, res: Response) => {
         try {
@@ -255,39 +256,31 @@ router.get('/verify', async (req: Request, res: Response) => {
     }
 
     try {
-        console.log('[DEBUG] Verify: Verifying token...');
         const decoded = jwt.verify(token, config.jwtSecret) as {
             userId: string;
         };
-        console.log('[DEBUG] Verify: Token verified. UserId:', decoded.userId);
 
         const result = await query(
             'SELECT id, email, full_name, role, school_id FROM public.users WHERE id = $1',
             [decoded.userId]
         );
-        console.log('[DEBUG] Verify: User query result count:', result.rows.length);
 
         if (result.rows.length === 0) {
-            console.log('[DEBUG] Verify: User not found');
             return errorResponse(res, 404, { error: 'User not found', code: 'USER_NOT_FOUND' });
         }
 
         const user = result.rows[0];
-        console.log('[DEBUG] Verify: User found. SchoolID:', user.school_id);
 
         let school = null;
         if (user.school_id) {
-            console.log('[DEBUG] Verify: Fetching school...');
             const schoolResult = await query(
                 'SELECT id, name, type, district FROM public.schools WHERE id = $1',
                 [user.school_id]
             );
             school = schoolResult.rows[0] || null;
-            console.log('[DEBUG] Verify: School fetched:', school ? 'Yes' : 'No');
         }
 
         // Generate fresh JWT with latest permissions
-        console.log('[DEBUG] Verify: Signing new token...');
         const newToken = jwt.sign(
             {
                 userId: user.id,
@@ -298,7 +291,6 @@ router.get('/verify', async (req: Request, res: Response) => {
             config.jwtSecret as string,
             { expiresIn: config.jwtExpiry as any }
         );
-        console.log('[DEBUG] Verify: Token signed.');
 
         return res.json({
             token: newToken,
@@ -308,7 +300,6 @@ router.get('/verify', async (req: Request, res: Response) => {
             },
         });
     } catch (error) {
-        console.error('[DEBUG] Verify: Error caught:', error);
         return errorResponse(res, 403, { error: 'Invalid or expired token', code: 'AUTH_TOKEN_INVALID' });
     }
 });

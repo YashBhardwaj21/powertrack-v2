@@ -13,14 +13,14 @@ let isJobRunning = false;
  */
 async function runAggregationJob() {
     if (isJobRunning) {
-        logger.warn('⚠️ Aggregation job skipped (previous job still running)');
+        logger.warn(' Aggregation job skipped (previous job still running)');
         return;
     }
     isJobRunning = true;
 
     try {
         const now = new Date();
-        logger.info('⏳ Starting daily aggregation job...');
+        logger.info(' Starting daily aggregation job...');
 
         // 1. Find candidate missing days
         // We want to find (school_id, local_date) where local_date < CURRENT_DATE(school_tz)
@@ -39,11 +39,11 @@ async function runAggregationJob() {
         `);
 
         if (result.rows.length === 0) {
-            logger.info('✅ No pending aggregations found');
+            logger.info(' No pending aggregations found');
             return;
         }
 
-        logger.info({ count: result.rows.length }, '📊 Found pending daily aggregations');
+        logger.info({ count: result.rows.length }, ' Found pending daily aggregations');
 
         for (const row of result.rows) {
             try {
@@ -54,14 +54,14 @@ async function runAggregationJob() {
                     err,
                     schoolId: row.school_id,
                     date: row.local_date
-                }, '❌ Failed to aggregate school day');
+                }, ' Failed to aggregate school day');
             }
         }
 
-        logger.info('✅ Daily aggregation job complete');
+        logger.info('Daily aggregation job complete');
 
     } catch (error) {
-        logger.error({ err: error }, '❌ Aggregation job crashed');
+        logger.error({ err: error }, ' Aggregation job crashed');
     } finally {
         isJobRunning = false;
     }
@@ -70,7 +70,7 @@ async function runAggregationJob() {
 export function startScheduler() {
     if (schedulerInterval) return;
 
-    logger.info('🕒 Scheduler started (interval: 15m)');
+    logger.info('Scheduler started (interval: 15m)');
 
     // Run once on startup after a small delay
     setTimeout(runAggregationJob, 10000);
@@ -82,6 +82,6 @@ export function stopScheduler() {
     if (schedulerInterval) {
         clearInterval(schedulerInterval);
         schedulerInterval = null;
-        logger.info('🛑 Scheduler stopped');
+        logger.info(' Scheduler stopped');
     }
 }

@@ -19,21 +19,21 @@ const nuke = async () => {
 
     try {
         await client.connect();
-        console.log("💣 Connected to DB. Preparing to NUKE...");
+        console.log("Connected to DB. Preparing to NUKE...");
 
         // 1. Drop Schema
-        console.log("💥 Dropping public schema...");
+        console.log(" Dropping public schema...");
         await client.query("DROP SCHEMA IF EXISTS public CASCADE;");
         await client.query("CREATE SCHEMA public;");
         await client.query("GRANT ALL ON SCHEMA public TO public;"); // Standard default
         console.log("✅ Schema dropped and recreated.");
 
         // 2. Re-apply Schema.sql
-        console.log("🏗️ Re-applying schema.sql...");
+        console.log(" Re-applying schema.sql...");
         const schemaPath = path.resolve(__dirname, "../db/schema.sql");
         const schemaSql = readFileSync(schemaPath, "utf-8");
         await client.query(schemaSql);
-        console.log("✅ Base schema applied.");
+        console.log(" Base schema applied.");
 
         // 3. Re-apply Migrations keys (009, 010 etc)
         // We generally want to apply all migrations in order
@@ -53,11 +53,11 @@ const nuke = async () => {
                 }
             }
         }
-        console.log("✅ Migrations applied.");
-        console.log("🚀 Database successfully reset!");
+        console.log(" Migrations applied.");
+        console.log(" Database successfully reset!");
 
     } catch (err) {
-        console.error("❌ Error nuking database:", err);
+        console.error(" Error nuking database:", err);
         process.exit(1);
     } finally {
         await client.end();

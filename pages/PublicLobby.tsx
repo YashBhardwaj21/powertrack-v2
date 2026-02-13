@@ -164,7 +164,7 @@ export const PublicLobby: React.FC = () => {
                         <div className="max-w-4xl mx-auto space-y-8">
 
                             <h1 className="text-4xl md:text-7xl font-bold text-white leading-tight tracking-tight uppercase">
-                                Powering West Java's <br />
+                                Powering Indonesia's <br />
                                 <span className="text-white">Green Infrastructure</span>
                             </h1>
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Factory, Github, Twitter, Linkedin } from 'lucide-react';
+import { Factory, Github, Heart, Linkedin } from 'lucide-react';
 
 export const AppFooter: React.FC = () => {
     return (
@@ -17,7 +17,7 @@ export const AppFooter: React.FC = () => {
                             Enterprise-grade solar monitoring and sustainability intelligence platform for educational institutions.
                         </p>
                     </div>
-                    <div>
+                    <div className="md:col-start-4 pl-6">
                         <h4 className="text-white font-bold mb-4 uppercase tracking-wider text-xs">Resources</h4>
                         <ul className="space-y-2">
                             <li><a href="#" className="hover:text-blue-400 transition-colors">Documentation</a></li>
@@ -25,21 +25,20 @@ export const AppFooter: React.FC = () => {
                             <li><a href="#" className="hover:text-blue-400 transition-colors">System Status</a></li>
                         </ul>
                     </div>
-                    <div>
-                        <h4 className="text-white font-bold mb-4 uppercase tracking-wider text-xs">Legal</h4>
-                        <ul className="space-y-2">
-                            <li><a href="#" className="hover:text-blue-400 transition-colors">Privacy Policy</a></li>
-                            <li><a href="#" className="hover:text-blue-400 transition-colors">Terms of Service</a></li>
-                            <li><a href="#" className="hover:text-blue-400 transition-colors">Cookie Policy</a></li>
-                        </ul>
-                    </div>
                 </div>
-                <div className="border-t border-slate-800 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
-                    <p>&copy; {new Date().getFullYear()} PowerTrack Enterprise. All rights reserved.</p>
-                    <div className="flex items-center gap-4">
-                        <a href="#" className="hover:text-white transition-colors"><Github className="w-5 h-5" /></a>
-                        <a href="#" className="hover:text-white transition-colors"><Twitter className="w-5 h-5" /></a>
-                        <a href="#" className="hover:text-white transition-colors"><Linkedin className="w-5 h-5" /></a>
+                <div className="border-t border-slate-800 pt-8 grid grid-cols-1 md:grid-cols-4 gap-8 items-center">
+                    <div className="col-span-1 md:col-span-2">
+                        <p className="flex items-center gap-1">
+                            Made with <Heart className="w-4 h-4 text-pink-500 fill-pink-500" /> for Indonesian schools
+                        </p>
+                    </div>
+                    <div className="md:col-start-4 pl-8 flex items-center gap-4">
+                        <a href="https://github.com/YashBhardwaj21/powertrack-v2" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
+                            <Github className="w-5 h-5" />
+                        </a>
+                        <a href="https://www.linkedin.com/in/itsyashbhardwaj" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
+                            <Linkedin className="w-5 h-5" />
+                        </a>
                     </div>
                 </div>
             </div>

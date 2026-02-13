@@ -124,7 +124,7 @@ graph LR
 
 1.  **Install Dependencies**:
     ```bash
-    npm install
+    pnpm install
     cd backend && npm install
     ```
 
@@ -137,7 +137,7 @@ graph LR
     cd backend && npm run dev
 
     # Terminal 2: Frontend
-    npm run dev
+    pnpm run dev
     ```
 
 ---

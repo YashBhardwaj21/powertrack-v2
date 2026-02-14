@@ -32,12 +32,9 @@ export const AppFooter: React.FC = () => {
                             Made with <Heart className="w-4 h-4 text-pink-500 fill-pink-500" /> for Indonesian schools
                         </p>
                     </div>
-                    <div className="md:col-start-4 pl-8 flex items-center gap-4">
+                    <div className="md:col-start-4 pl-14 flex items-center gap-4">
                         <a href="https://github.com/YashBhardwaj21/powertrack-v2" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
                             <Github className="w-5 h-5" />
-                        </a>
-                        <a href="https://www.linkedin.com/in/itsyashbhardwaj" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
-                            <Linkedin className="w-5 h-5" />
                         </a>
                     </div>
                 </div>

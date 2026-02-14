@@ -39,13 +39,24 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
         }
     }, [hourlyHistorical, selectedDate]);
 
+    // Helper to get today's date string in school timezone
+    const todayStr = useMemo(() => {
+        return new Date().toLocaleDateString('en-CA', { timeZone: timezone });
+    }, [timezone]);
+
     const handleDateClick = async (dateStr: string) => {
-        if (selectedDate === dateStr) return; // Already selected
-        setSelectedDate(dateStr);
+        // Ensure we have a YYYY-MM-DD format
+        // ECharts might return full ISO string or Date string depending on data
+        const date = new Date(dateStr);
+        const formattedDate = date.toLocaleDateString('en-CA', { timeZone: timezone });
+
+        if (selectedDate === formattedDate) return;
+
+        setSelectedDate(formattedDate);
         setHourlyLoading(true);
 
         try {
-            const result = await fetchHourlyData(dateStr);
+            const result = await fetchHourlyData(formattedDate);
             setHourlyData(result);
         } catch (err) {
             console.error(err);
@@ -139,7 +150,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
                             </div>
                         )}
                         {statsData && statsData.length > 0 ? (
-                            <DailyHistoryChart data={statsData} onDateClick={handleDateClick} />
+                            <DailyHistoryChart data={statsData} onDateClick={handleDateClick} timezone={timezone} />
                         ) : (
                             <div className="h-64 flex items-center justify-center text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">
                                 No history data available for this range
@@ -155,7 +166,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
                             <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">Performance Review</h3>
                             <h2 className="text-xl font-bold text-slate-900">
                                 {selectedDate
-                                    ? `Production on ${formatDateInSchoolTZ(selectedDate, timezone)}`
+                                    ? `Production on ${selectedDate === todayStr ? 'Today' : formatDateInSchoolTZ(selectedDate, timezone)}`
                                     : "Today's Production"
                                 }
                             </h2>
@@ -171,7 +182,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = React.memo(({
                                 )}
                             </p>
                         </div>
-                        {selectedDate && (
+                        {selectedDate && selectedDate !== todayStr && (
                             <button
                                 onClick={() => { setSelectedDate(null); setHourlyData(hourlyHistorical || []); }}
                                 className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1.5 rounded-md"

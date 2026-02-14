@@ -24,15 +24,29 @@ const COLORS = [
 ];
 
 export const PublicEnergyChart: React.FC<PublicEnergyChartProps> = ({ data, loading, timezone = 'UTC' }) => {
+    // Filter data for 16-hour window (04:00 - 20:00)
+    const filteredData = React.useMemo(() => {
+        return data.filter(item => {
+            const date = new Date(item.timestamp);
+            // Get hour in school's timezone
+            const hour = parseInt(date.toLocaleTimeString('en-US', {
+                timeZone: timezone,
+                hour12: false,
+                hour: '2-digit'
+            }));
+            return hour >= 4 && hour <= 20;
+        });
+    }, [data, timezone]);
+
     // Extract school names from first data point keys, excluding 'timestamp'
-    const schoolNames = data.length > 0
-        ? Object.keys(data[0]).filter(key => key !== 'timestamp')
+    const schoolNames = filteredData.length > 0
+        ? Object.keys(filteredData[0]).filter(key => key !== 'timestamp')
         : [];
 
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
             // Sort payload by value desc
-            const sorted = [...payload].sort((a, b) => b.value - a.value);
+            const sorted = [...payload].sort((a: any, b: any) => b.value - a.value);
 
             return (
                 <div className="bg-slate-900/95 text-white p-4 rounded-lg shadow-xl border border-slate-700 max-w-[280px]">
@@ -70,7 +84,7 @@ export const PublicEnergyChart: React.FC<PublicEnergyChartProps> = ({ data, load
                         Network Power Generation Profile
                     </h2>
                     <p className="text-slate-500 mt-1 text-sm">
-                        Real-time instantaneous power readings (kW) for all connected institutions (24-hour window)
+                        Real-time instantaneous power readings (kW) for all connected institutions (16-hour window: 04:00 - 20:00)
                     </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs font-medium text-slate-400 bg-slate-50 px-3 py-1.5 rounded-md">
@@ -92,13 +106,13 @@ export const PublicEnergyChart: React.FC<PublicEnergyChartProps> = ({ data, load
                         <Activity className="w-8 h-8 opacity-50" />
                         <span>Synchronizing telemetry streams...</span>
                     </div>
-                ) : data.length === 0 ? (
+                ) : filteredData.length === 0 ? (
                     <div className="h-full flex items-center justify-center text-slate-400">
                         No telemetry data available for this period.
                     </div>
                 ) : (
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                        <LineChart data={filteredData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                             <XAxis
                                 dataKey="timestamp"
@@ -106,7 +120,7 @@ export const PublicEnergyChart: React.FC<PublicEnergyChartProps> = ({ data, load
                                 stroke="#94a3b8"
                                 fontSize={11}
                                 tickMargin={10}
-                                minTickGap={50}
+                                minTickGap={30}
                             />
                             <YAxis
                                 stroke="#94a3b8"

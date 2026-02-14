@@ -83,7 +83,7 @@ export const dashboardService = {
         // If schoolId is NOT provided (Overview), we default to 'Asia/Jakarta' for the common axis alignment.
 
         const timeFilter = targetDate
-            ? `date_trunc('day', t.timestamp AT TIME ZONE s.timezone) = date_trunc('day', $3::timestamp)`
+            ? `DATE(t.timestamp AT TIME ZONE s.timezone) = $3::date`
             : `t.timestamp >= NOW() - INTERVAL '48 hours'`;
 
         // Determine reference timezone for the bucket series (Overview = Jakarta, School = School's TZ)
@@ -122,7 +122,7 @@ export const dashboardService = {
                     MAX(t.daily_energy_kwh) - MIN(t.daily_energy_kwh) as hourly_energy
                 FROM public.telemetry t
                 JOIN public.schools s ON t.school_id = s.id
-                WHERE ${targetDate ? `date_trunc('day', t.timestamp AT TIME ZONE s.timezone) = date_trunc('day', $3::timestamp)` : `t.timestamp >= NOW() - INTERVAL '48 hours'`}
+                WHERE ${targetDate ? `DATE(t.timestamp AT TIME ZONE s.timezone) = $3::date` : `t.timestamp >= NOW() - INTERVAL '48 hours'`}
                 AND ($2::uuid IS NULL OR t.school_id = $2::uuid)
                 GROUP BY 1, 2, 3
             ),

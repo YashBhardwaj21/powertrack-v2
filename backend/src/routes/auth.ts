@@ -10,6 +10,7 @@ import { loginSchema, registerSchema } from '../validation/schemas.js';
 import { User } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 import { errorResponse } from '../utils/errorResponse.js';
+import { sendPasswordResetEmail } from '../utils/emailService.js';
 
 const router = express.Router();
 
@@ -198,12 +199,12 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
             [resetToken, expires, user.id]
         );
 
-        // DEV MODE: Log the link
-        const resetLink = `http://localhost:3000/reset-password?token=${resetToken}`;
-        logger.info({ email, resetLink }, '🔑 PASSWORD RESET LINK');
-        console.log('\n\n==================================================');
-        console.log('🔗 PASSWORD RESET LINK:', resetLink);
-        console.log('==================================================\n\n');
+        // Build reset link using FRONTEND_URL from config
+        const frontendUrl = config.frontendUrls[0] || 'http://localhost:3000';
+        const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+        // Send email (falls back to warn-log if SMTP is not configured)
+        await sendPasswordResetEmail(email, resetLink);
 
         return res.json({ message: 'If that email exists, we sent a reset link to it.' });
     } catch (error) {

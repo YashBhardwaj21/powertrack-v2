@@ -7,6 +7,7 @@ import { PublicLobby } from './pages/PublicLobby';
 import { ControlRoom } from './pages/ControlRoom';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { OverviewDashboard } from './pages/OverviewDashboard';
 import { Analytics } from './pages/Analytics';
 import { FinancialDashboard } from './pages/FinancialDashboard';
@@ -199,6 +200,7 @@ const App: React.FC = () => {
                             <Route path="/" element={<PublicLobby />} />
                             <Route path="/login" element={<LoginPage />} />
                             <Route path="/register" element={<RegisterPage />} />
+                            <Route path="/reset-password" element={<ResetPasswordPage />} />
 
                             {/* Protected Dashboard Routes */}
                             <Route path="/dashboard" element={user ? <DashboardLayout /> : <Navigate to="/login" />}>

@@ -29,6 +29,14 @@ export const config = {
 
     // WebSocket
     wsPort: parseInt(process.env.WS_PORT || '3002', 10),
+
+    // Email (Nodemailer SMTP)
+    smtpHost: process.env.SMTP_HOST || '',
+    smtpPort: parseInt(process.env.SMTP_PORT || '587', 10),
+    smtpUser: process.env.SMTP_USER || '',
+    smtpPass: process.env.SMTP_PASS || '',
+    emailFromName: process.env.EMAIL_FROM_NAME || 'PowerTrack',
+    emailFromAddress: process.env.EMAIL_FROM_ADDRESS || '',
 };
 
 // Validate required config (DATABASE_URL and JWT_SECRET are required for runtime; SUPABASE_* optional if using direct pg)
